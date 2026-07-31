@@ -1,0 +1,37 @@
+# ============================================================================
+# MULTI-DEVICE OFF-DURATION SENSOR — Frag Tank
+# ============================================================================
+# ONE sensor tracks however many devices you list — no duplicating a block
+# per device. Add/remove devices by editing
+# input_text.frag_tracked_devices (comma-separated entity_ids) from the
+# dashboard or Developer Tools > States, no YAML edits or restarts needed.
+#
+# Works for any switch/fan entity from any vendor, since it just reads
+# state + last_changed — nothing vendor-specific here.
+# ============================================================================
+
+template:
+  - trigger:
+      - trigger: time_pattern
+        seconds: "/30"
+      - trigger: state
+        entity_id: input_text.frag_tracked_devices
+    sensor:
+      - name: "Frag Tank Device Off Durations"
+        unique_id: frag_device_off_durations
+        state: >
+          {% set tracked = states('input_text.frag_tracked_devices').split(',') | map('trim') | reject('equalto','') | list %}
+          {{ tracked | select('is_state', 'off') | list | count }}
+        unit_of_measurement: devices off
+        icon: mdi:timer-off-outline
+        attributes:
+          devices: >
+            {% set tracked = states('input_text.frag_tracked_devices').split(',') | map('trim') | reject('equalto','') | list %}
+            {% set ns = namespace(list=[]) %}
+            {% for e in tracked %}
+              {% if states(e) not in ['unknown', 'unavailable'] %}
+                {% set off_min = ((now() - states[e].last_changed).total_seconds() / 60) | round(1) if is_state(e, 'off') else 0 %}
+                {% set ns.list = ns.list + [{'entity_id': e, 'name': state_attr(e, 'friendly_name') or e, 'state': states(e), 'off_minutes': off_min}] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.list }}

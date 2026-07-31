@@ -1,0 +1,251 @@
+blueprint:
+  name: Reef - Feed Mode (Wavemakers, Return Pump Speed, Skimmer)
+  description: >
+    Vendor-agnostic. Toggling ON: wavemakers pause, return pump(s) drop to
+    a reduced feed speed (if you have variable-speed pumps exposed as a
+    HA `number` entity), and the skimmer pauses. Wavemakers and return
+    pump speed restore after an adjustable "Feed Duration". The skimmer
+    stays off longer — Feed Duration + an adjustable "extra" buffer — so
+    foam production settles before it restarts. Both durations are driven
+    by input_number sliders on the dashboard, no editing required.
+  domain: automation
+  source_url: reef-ha-cards/blueprints/automation/reef_feed_mode.yaml
+  input:
+    feed_mode_toggle:
+      name: Feed Mode Toggle
+      description: input_boolean used as the "Feed Time" button/switch.
+      selector:
+        entity:
+          domain: input_boolean
+    wavemakers:
+      name: Wavemaker(s)
+      description: Pauses immediately, restarts after Feed Duration.
+      selector:
+        target:
+          entity:
+            domain: [switch, fan]
+    return_pump_controls:
+      name: Return Pump Speed Control(s) (optional)
+      description: >
+        Leave empty if your return pump doesn't have variable speed
+        control in HA. If provided, these must be `number` entities
+        (percentage/speed set-points) — their current value is saved and
+        restored automatically, and they're set to "Return Pump Feed
+        Speed" during feeding.
+      default: []
+      selector:
+        entity:
+          multiple: true
+          domain: number
+    return_pump_feed_percent_source:
+      name: Return Pump Feed Speed (optional)
+      description: An input_number (%) — required only if Return Pump Speed Control(s) is set.
+      default: ""
+      selector:
+        entity:
+          domain: input_number
+    return_pump_prior_storage:
+      name: Return Pump Prior-Speed Storage
+      description: An input_text helper used internally to remember pre-feed speed so it can be restored.
+      selector:
+        entity:
+          domain: input_text
+    skimmer:
+      name: Skimmer
+      description: Pauses immediately, restarts after Feed Duration + Skimmer Extra Off Time.
+      selector:
+        target:
+          entity:
+            domain: [switch, fan]
+    feed_duration_source:
+      name: Feed Duration (minutes)
+      description: An input_number slider — how long wavemakers (and return pump speed) stay reduced.
+      selector:
+        entity:
+          domain: input_number
+    skimmer_extra_minutes_source:
+      name: Skimmer Extra Off Time (minutes)
+      description: An input_number slider — added on top of Feed Duration before the skimmer restarts.
+      selector:
+        entity:
+          domain: input_number
+    feed_timer:
+      name: Wavemaker/Feed Countdown Timer
+      description: Timer helper for dashboard countdown of the wavemaker/feed stage.
+      selector:
+        entity:
+          domain: timer
+    skimmer_timer:
+      name: Skimmer Countdown Timer
+      description: Timer helper for dashboard countdown of the skimmer stage.
+      selector:
+        entity:
+          domain: timer
+    notify_target:
+      name: Notify Action (optional, fires once the skimmer restarts)
+      default: []
+      selector:
+        action:
+
+trigger:
+  - platform: state
+    entity_id: !input feed_mode_toggle
+    to: "on"
+    id: start
+  - platform: state
+    entity_id: !input feed_mode_toggle
+    to: "off"
+    id: cancelled
+  - platform: event
+    event_type: timer.finished
+    event_data:
+      entity_id: !input feed_timer
+    id: wavemakers_done
+  - platform: event
+    event_type: timer.finished
+    event_data:
+      entity_id: !input skimmer_timer
+    id: skimmer_done
+
+variables:
+  wavemakers: !input wavemakers
+  return_pump_controls: !input return_pump_controls
+  return_pump_feed_percent_source: !input return_pump_feed_percent_source
+  return_pump_prior_storage: !input return_pump_prior_storage
+  skimmer: !input skimmer
+  feed_duration_source: !input feed_duration_source
+  skimmer_extra_minutes_source: !input skimmer_extra_minutes_source
+  feed_mode_toggle: !input feed_mode_toggle
+
+action:
+  - choose:
+      # --- Feed starting ---
+      - conditions:
+          - condition: trigger
+            id: start
+        sequence:
+          - action: homeassistant.turn_off
+            target: !input wavemakers
+          - action: homeassistant.turn_off
+            target: !input skimmer
+
+          - if:
+              - condition: template
+                value_template: "{{ return_pump_controls | count > 0 and return_pump_feed_percent_source not in ['', none] }}"
+            then:
+              # Save current speed(s) so they can be restored later
+              - action: input_text.set_value
+                target:
+                  entity_id: !input return_pump_prior_storage
+                data:
+                  value: >
+                    {% set ns = namespace(list=[]) %}
+                    {% for e in return_pump_controls %}
+                      {% set ns.list = ns.list + [{'entity_id': e, 'value': states(e)}] %}
+                    {% endfor %}
+                    {{ ns.list | tojson }}
+              # Drop to feed speed
+              - repeat:
+                  for_each: "{{ return_pump_controls }}"
+                  sequence:
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ repeat.item }}"
+                      data:
+                        value: "{{ states(return_pump_feed_percent_source) | float }}"
+
+          - action: timer.start
+            target:
+              entity_id: !input feed_timer
+            data:
+              duration: "00:{{ '%02d' % (states(feed_duration_source) | float | round(0) | int) }}:00"
+          - action: timer.start
+            target:
+              entity_id: !input skimmer_timer
+            data:
+              duration: >
+                00:{{ '%02d' % (((states(feed_duration_source) | float) + (states(skimmer_extra_minutes_source) | float)) | round(0) | int) }}:00
+
+      # --- Feed Duration elapsed: wavemakers resume (return pump speed keeps running until skimmer stage) ---
+      - conditions:
+          - condition: trigger
+            id: wavemakers_done
+        sequence:
+          - action: homeassistant.turn_on
+            target: !input wavemakers
+
+      # --- Skimmer stage elapsed: skimmer resumes, return pump speed restored, cycle complete ---
+      - conditions:
+          - condition: trigger
+            id: skimmer_done
+        sequence:
+          - action: homeassistant.turn_on
+            target: !input skimmer
+          - variables:
+              prior_list: >
+                {% set raw = states(return_pump_prior_storage) %}
+                {{ (raw | from_json) if raw not in ['', 'unknown', 'unavailable'] else [] }}
+          - repeat:
+              for_each: "{{ prior_list }}"
+              sequence:
+                - action: number.set_value
+                  target:
+                    entity_id: "{{ repeat.item.entity_id }}"
+                  data:
+                    value: "{{ repeat.item.value | float }}"
+          - action: input_text.set_value
+            target:
+              entity_id: !input return_pump_prior_storage
+            data:
+              value: ""
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input feed_mode_toggle
+          - if:
+              - condition: template
+                value_template: "{{ notify_target != [] }}"
+            then: !input notify_target
+
+      # --- Manually cancelled early: wavemakers & return pump restore now,
+      #     but the skimmer still waits out its buffer — re-timed from the
+      #     moment of cancellation rather than the original feed start, so
+      #     it stays off for a full "Skimmer Extra Off Time" from now.
+      - conditions:
+          - condition: trigger
+            id: cancelled
+        sequence:
+          - action: timer.cancel
+            target:
+              entity_id: !input feed_timer
+          - action: homeassistant.turn_on
+            target: !input wavemakers
+          - variables:
+              prior_list: >
+                {% set raw = states(return_pump_prior_storage) %}
+                {{ (raw | from_json) if raw not in ['', 'unknown', 'unavailable'] else [] }}
+          - repeat:
+              for_each: "{{ prior_list }}"
+              sequence:
+                - action: number.set_value
+                  target:
+                    entity_id: "{{ repeat.item.entity_id }}"
+                  data:
+                    value: "{{ repeat.item.value | float }}"
+          - action: input_text.set_value
+            target:
+              entity_id: !input return_pump_prior_storage
+            data:
+              value: ""
+          # Skimmer keeps resting — restart its timer for just the buffer
+          # amount, counted from now, instead of leaving whatever time was
+          # left on the original (longer) schedule, and instead of turning
+          # it straight back on. skimmer_done still fires normally when
+          # this finishes.
+          - action: timer.start
+            target:
+              entity_id: !input skimmer_timer
+            data:
+              duration: "00:{{ '%02d' % (states(skimmer_extra_minutes_source) | float | round(0) | int) }}:00"
+
+mode: single
+max_exceeded: silent

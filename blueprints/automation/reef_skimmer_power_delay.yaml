@@ -1,0 +1,93 @@
+blueprint:
+  name: Reef - Delayed Restart After Power Loss
+  description: >
+    Vendor-agnostic. Waits a configurable delay after power is restored before
+    turning a device back on — e.g. giving a skimmer time before it restarts,
+    so it doesn't immediately foam over after a surge. Works with ANY switch
+    or fan entity, regardless of vendor (Tapo, Shelly, Jebao-via-local,
+    Red Sea, Zigbee, native integrations, etc.) as long as it appears in HA
+    as a standard switch/fan entity.
+  domain: automation
+  source_url: reef-ha-cards/blueprints/automation/reef_skimmer_power_delay.yaml
+  input:
+    power_sensor:
+      name: Power Restored Sensor
+      description: >
+        A binary_sensor (or similar) that reflects mains/UPS power state.
+        E.g. a UPS integration's "AC Power" binary_sensor, or a smart plug's
+        connectivity sensor.
+      selector:
+        entity:
+          domain: binary_sensor
+    power_restored_state:
+      name: State meaning "power is back"
+      default: "on"
+      selector:
+        text:
+    target_device:
+      name: Device to Restart
+      description: The switch or fan entity to delay-restart (e.g. your skimmer's plug).
+      selector:
+        target:
+          entity:
+            domain:
+              - switch
+              - fan
+    delay_minutes:
+      name: Restart Delay (minutes)
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 60
+          unit_of_measurement: min
+    delay_timer:
+      name: Countdown Timer Helper (optional, for dashboard display)
+      description: >
+        A timer helper (e.g. timer.reef_skimmer_restart_delay). If provided,
+        it will run for the delay so a dashboard card can show a live countdown.
+      default: ""
+      selector:
+        entity:
+          domain: timer
+    notify_target:
+      name: Notify Action (optional)
+      description: Notify service call to fire when the device restarts.
+      default: []
+      selector:
+        action:
+
+trigger:
+  - platform: state
+    entity_id: !input power_sensor
+    to: !input power_restored_state
+
+variables:
+  delay_timer: !input delay_timer
+  delay_minutes: !input delay_minutes
+
+condition: []
+
+action:
+  - if:
+      - condition: template
+        value_template: "{{ delay_timer != '' }}"
+    then:
+      - action: timer.start
+        target:
+          entity_id: !input delay_timer
+        data:
+          duration: "00:{{ '%02d' % (delay_minutes | int) }}:00"
+  - delay:
+      minutes: !input delay_minutes
+  # homeassistant.turn_on is domain-agnostic — works whether the target
+  # resolves to a switch, fan, or other on/off-capable entity, so vendor
+  # / device-type differences never need to be handled here.
+  - action: homeassistant.turn_on
+    target: !input target_device
+  - if:
+      - condition: template
+        value_template: "{{ notify_target != [] }}"
+    then: !input notify_target
+
+mode: restart

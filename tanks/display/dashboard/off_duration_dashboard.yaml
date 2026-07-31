@@ -1,0 +1,29 @@
+# ============================================================================
+# MULTI-DEVICE OFF-DURATION DASHBOARD — Display Tank — Plain YAML
+# ============================================================================
+# Add devices to track by editing the text field this card shows — paste
+# entity_ids comma-separated, e.g.:
+#   switch.skimmer_plug, switch.return_pump, fan.wavemaker_1, fan.wavemaker_2
+# The list auto-renders below, no per-device card editing ever needed.
+# ============================================================================
+
+type: vertical-stack
+cards:
+  - type: entities
+    title: "Display Tank — Tracked Devices"
+    entities:
+      - entity: input_text.display_tracked_devices
+        name: Devices to Track
+
+  - type: markdown
+    content: >
+      {% set devices = state_attr('sensor.display_device_off_durations', 'devices') %}
+      {% if not devices %}
+      _No devices being tracked yet — add entity_ids above._
+      {% else %}
+      | Device | Status | Off For |
+      |---|---|---|
+      {% for d in devices %}
+      | {{ d.name }} | {{ '🔴 OFF' if d.state == 'off' else '🟢 ON' if d.state == 'on' else d.state }} | {{ d.off_minutes ~ ' min' if d.state == 'off' else '—' }} |
+      {% endfor %}
+      {% endif %}

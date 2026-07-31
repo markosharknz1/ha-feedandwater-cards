@@ -1,0 +1,40 @@
+# Swap YOUR_SKIMMER_SWITCH / YOUR_POWER_SENSOR for this tank's real entity_ids.
+type: vertical-stack
+cards:
+  - type: custom:mushroom-title-card
+    title: "Frag Tank — Skimmer"
+    subtitle: Power-loss restart protection
+
+  - type: custom:mushroom-entity-card
+    entity: switch.YOUR_SKIMMER_SWITCH
+    name: Skimmer
+    icon: mdi:cup
+    tap_action:
+      action: toggle
+
+  - type: custom:mushroom-template-card
+    primary: >
+      {% if is_state('timer.frag_skimmer_restart_delay', 'active') %}
+        ⚠️ Restarting {{ relative_time(as_datetime(state_attr('timer.frag_skimmer_restart_delay','finishes_at'))) }}
+      {% elif is_state('binary_sensor.YOUR_POWER_SENSOR', 'off') %}
+        Power currently out
+      {% else %}
+        Power stable
+      {% endif %}
+    icon: mdi:flash-alert
+    icon_color: >
+      {% if is_state('timer.frag_skimmer_restart_delay', 'active') %}orange
+      {% elif is_state('binary_sensor.YOUR_POWER_SENSOR', 'off') %}red
+      {% else %}green{% endif %}
+
+  - type: custom:mushroom-template-card
+    primary: Force Restart Now (skip delay)
+    icon: mdi:play-circle
+    icon_color: red
+    tap_action:
+      action: call-service
+      service: homeassistant.turn_on
+      target:
+        entity_id: switch.YOUR_SKIMMER_SWITCH
+      confirmation:
+        text: Skip the restart delay and turn the skimmer on immediately?

@@ -1,0 +1,203 @@
+blueprint:
+  name: Reef - Water Change Mode (Staged Restart)
+  description: >
+    Vendor-agnostic. Toggling ON immediately pauses return pump(s),
+    wavemakers, and skimmer together. Toggling OFF (when the water change
+    is done) restarts them in sequence instead of all at once: return
+    pump(s) first, then wavemakers after an adjustable delay, then the
+    skimmer after a further adjustable delay — giving water level and flow
+    time to settle before the skimmer restarts. The two delays are driven
+    by input_number sliders so they're adjustable from the dashboard
+    without editing the automation. Includes a safety timer that forces
+    the same staged restart if you forget to end water change mode.
+  domain: automation
+  source_url: reef-ha-cards/blueprints/automation/reef_water_change_mode.yaml
+  input:
+    water_change_toggle:
+      name: Water Change Mode Toggle
+      description: input_boolean used as the "Water Change Time" button/switch.
+      selector:
+        entity:
+          domain: input_boolean
+    return_pumps:
+      name: Return Pump(s)
+      description: Restarts first, immediately when water change mode ends.
+      selector:
+        target:
+          entity:
+            domain: [switch, fan]
+    wavemakers:
+      name: Wavemaker(s)
+      description: Restarts after "Return Pump → Wavemaker Delay".
+      selector:
+        target:
+          entity:
+            domain: [switch, fan]
+    skimmer:
+      name: Skimmer
+      description: Restarts after "Wavemaker → Skimmer Delay".
+      selector:
+        target:
+          entity:
+            domain: [switch, fan]
+    wavemaker_delay_source:
+      name: Return Pump → Wavemaker Delay (minutes)
+      description: >
+        An input_number entity (shown as a slider on the dashboard) whose
+        current value controls how many minutes after the return pump(s)
+        restart before wavemakers restart.
+      selector:
+        entity:
+          domain: input_number
+    skimmer_delay_source:
+      name: Wavemaker → Skimmer Delay (minutes)
+      description: >
+        An input_number entity (shown as a slider on the dashboard) whose
+        current value controls how many minutes after wavemakers restart
+        before the skimmer restarts.
+      selector:
+        entity:
+          domain: input_number
+    wavemaker_countdown_timer:
+      name: Wavemaker Restart Countdown Timer (optional)
+      description: A timer helper — if provided, a dashboard card can show live countdown to wavemaker restart.
+      default: ""
+      selector:
+        entity:
+          domain: timer
+    skimmer_countdown_timer:
+      name: Skimmer Restart Countdown Timer (optional)
+      description: A timer helper — if provided, a dashboard card can show live countdown to skimmer restart.
+      default: ""
+      selector:
+        entity:
+          domain: timer
+    safety_timer:
+      name: Safety Auto-Revert Timer
+      description: If water change mode is left on too long, this forces the staged restart automatically.
+      selector:
+        entity:
+          domain: timer
+    safety_hours:
+      name: Safety Timeout (hours)
+      default: 2
+      selector:
+        number:
+          min: 0.5
+          max: 12
+          step: 0.5
+          unit_of_measurement: hr
+    notify_target:
+      name: Notify Action (optional, fires once the skimmer restarts)
+      default: []
+      selector:
+        action:
+
+trigger:
+  - platform: state
+    entity_id: !input water_change_toggle
+    to: "on"
+    id: start
+  - platform: state
+    entity_id: !input water_change_toggle
+    to: "off"
+    id: restart_sequence
+  - platform: event
+    event_type: timer.finished
+    event_data:
+      entity_id: !input safety_timer
+    id: restart_sequence
+
+variables:
+  return_pumps: !input return_pumps
+  wavemakers: !input wavemakers
+  skimmer: !input skimmer
+  wavemaker_delay_source: !input wavemaker_delay_source
+  skimmer_delay_source: !input skimmer_delay_source
+  wavemaker_countdown_timer: !input wavemaker_countdown_timer
+  skimmer_countdown_timer: !input skimmer_countdown_timer
+  safety_hours: !input safety_hours
+  notify_target: !input notify_target
+
+action:
+  - choose:
+      # --- Water change starting: pause everything together, start safety timer ---
+      - conditions:
+          - condition: trigger
+            id: start
+        sequence:
+          - action: homeassistant.turn_off
+            target: !input return_pumps
+          - action: homeassistant.turn_off
+            target: !input wavemakers
+          - action: homeassistant.turn_off
+            target: !input skimmer
+          - action: timer.start
+            target:
+              entity_id: !input safety_timer
+            data:
+              duration: "{{ (safety_hours | float) | int }}:{{ '%02d' % (((safety_hours | float) % 1) * 60) }}:00"
+
+      # --- Water change done (manually, or safety timeout): staged restart ---
+      - conditions:
+          - condition: trigger
+            id: restart_sequence
+        sequence:
+          - action: timer.cancel
+            target:
+              entity_id: !input safety_timer
+
+          # Ensure the toggle already reads "off" before running the staged
+          # restart below. Doing this now (not at the end) matters: with the
+          # safety-timer path the toggle is still "on" at this point, and
+          # turning it off later — after the sequence — would fire a fresh
+          # "off" state-change that could retrigger this same automation
+          # mid-sequence. Clearing it here, combined with `mode: single`
+          # below, avoids that.
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input water_change_toggle
+
+          # Stage 1: return pump(s) restart immediately
+          - action: homeassistant.turn_on
+            target: !input return_pumps
+
+          # Stage 2: wavemakers restart after the adjustable delay
+          - if:
+              - condition: template
+                value_template: "{{ wavemaker_countdown_timer != '' }}"
+            then:
+              - action: timer.start
+                target:
+                  entity_id: !input wavemaker_countdown_timer
+                data:
+                  duration: "00:{{ '%02d' % (states(wavemaker_delay_source) | float | round(0) | int) }}:00"
+          - delay: "00:{{ '%02d' % (states(wavemaker_delay_source) | float | round(0) | int) }}:00"
+          - action: homeassistant.turn_on
+            target: !input wavemakers
+
+          # Stage 3: skimmer restarts after a further adjustable delay
+          - if:
+              - condition: template
+                value_template: "{{ skimmer_countdown_timer != '' }}"
+            then:
+              - action: timer.start
+                target:
+                  entity_id: !input skimmer_countdown_timer
+                data:
+                  duration: "00:{{ '%02d' % (states(skimmer_delay_source) | float | round(0) | int) }}:00"
+          - delay: "00:{{ '%02d' % (states(skimmer_delay_source) | float | round(0) | int) }}:00"
+          - action: homeassistant.turn_on
+            target: !input skimmer
+
+          - if:
+              - condition: template
+                value_template: "{{ notify_target != [] }}"
+            then: !input notify_target
+
+# Deliberately NOT mode: restart — a retrigger while the staged restart is
+# already running (e.g. from the toggle-off action above) must not cancel
+# and restart the pump sequence mid-flight. `single` ignores new triggers
+# until the current run finishes.
+mode: single
+max_exceeded: silent

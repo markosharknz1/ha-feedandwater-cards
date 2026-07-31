@@ -1,0 +1,126 @@
+# ============================================================================
+# HELPERS — Frag Tank
+# Generated from templates/helpers.yaml.tmpl — do not hand-edit if you plan
+# to regenerate later; edit the template instead.
+# ============================================================================
+
+input_select:
+  frag_flow_mode:
+    name: "Frag Tank Flow Mode"
+    icon: mdi:waves
+    options:
+      - "Reef Crest"
+      - "Nutrient Export"
+      - "Feed"
+
+input_boolean:
+  frag_feed_mode:
+    name: "Frag Tank Feed Mode"
+    icon: mdi:food-drumstick
+
+  frag_water_change_mode:
+    name: "Frag Tank Water Change Mode"
+    icon: mdi:water-sync
+
+input_number:
+  frag_feed_duration_minutes:
+    name: "Frag Tank Feed Mode Duration"
+    icon: mdi:timer-outline
+    mode: slider
+    min: 1
+    max: 60
+    step: 1
+    unit_of_measurement: min
+    initial: 20
+
+  frag_feed_return_pump_percent:
+    name: "Frag Tank Return Pump Feed Speed"
+    icon: mdi:speedometer-slow
+    mode: slider
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    initial: 30
+
+  frag_feed_skimmer_extra_minutes:
+    name: "Frag Tank Skimmer Extra Off Time (after feed ends)"
+    icon: mdi:timer-plus-outline
+    mode: slider
+    min: 0
+    max: 30
+    step: 1
+    unit_of_measurement: min
+    initial: 10
+
+  frag_water_change_volume_liters:
+    name: "Frag Tank Last Water Change Volume"
+    icon: mdi:cup-water
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: L
+
+  frag_wc_wavemaker_delay:
+    name: "Frag Tank Return Pump \u2192 Wavemaker Delay"
+    icon: mdi:timer-sand
+    mode: slider
+    min: 0
+    max: 30
+    step: 1
+    unit_of_measurement: min
+    initial: 5
+
+  frag_wc_skimmer_delay:
+    name: "Frag Tank Wavemaker \u2192 Skimmer Delay"
+    icon: mdi:timer-sand
+    mode: slider
+    min: 0
+    max: 30
+    step: 1
+    unit_of_measurement: min
+    initial: 10
+
+input_datetime:
+  frag_last_water_change:
+    name: "Frag Tank Last Water Change"
+    has_date: true
+    has_time: true
+
+input_text:
+  frag_tracked_devices:
+    name: "Frag Tank Tracked Devices (comma-separated entity_ids)"
+    icon: mdi:format-list-bulleted
+    max: 255
+    initial: ""
+
+  frag_feed_return_pump_prior:
+    name: "Frag Tank Return Pump Speed Before Feed (internal storage)"
+    icon: mdi:content-save-outline
+    max: 255
+    initial: ""
+
+timer:
+  frag_feed_mode:
+    name: "Frag Tank Feed Mode Timer (wavemakers)"
+    duration: "00:20:00"
+
+  frag_feed_skimmer_off:
+    name: "Frag Tank Feed Mode Timer (skimmer)"
+    duration: "00:30:00"
+
+  frag_skimmer_restart_delay:
+    name: "Frag Tank Skimmer Restart Delay"
+    duration: "00:05:00"
+
+  frag_water_change_safety:
+    name: "Frag Tank Water Change Safety Timer"
+    duration: "02:00:00"
+
+  frag_wc_wavemaker_countdown:
+    name: "Frag Tank Wavemaker Restart Countdown"
+    duration: "00:05:00"
+
+  frag_wc_skimmer_countdown:
+    name: "Frag Tank Skimmer Restart Countdown"
+    duration: "00:10:00"

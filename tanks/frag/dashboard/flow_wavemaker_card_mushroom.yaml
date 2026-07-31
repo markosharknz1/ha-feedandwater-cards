@@ -1,0 +1,14 @@
+type: vertical-stack
+cards:
+  - type: custom:mushroom-title-card
+    title: "Frag Tank — Flow / Wavemakers"
+    subtitle: Flow regimen selection
+
+  - type: custom:mushroom-select-card
+    entity: input_select.frag_flow_mode
+    icon: mdi:waves
+    fill_container: true
+
+# Feeding is handled by its own card (feed_card_mushroom.yaml) — it
+# controls wavemakers, return pump speed, and skimmer together as one
+# sequence, since feeding affects more than just flow.

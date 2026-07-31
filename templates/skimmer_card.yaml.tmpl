@@ -1,0 +1,38 @@
+# Swap YOUR_SKIMMER_SWITCH / YOUR_POWER_SENSOR for this tank's real entity_ids.
+type: vertical-stack
+cards:
+  - type: entities
+    title: "{{TITLE}} — Skimmer"
+    show_header_toggle: false
+    entities:
+      - entity: switch.YOUR_SKIMMER_SWITCH
+        name: Skimmer
+        icon: mdi:cup
+
+      - entity: binary_sensor.YOUR_POWER_SENSOR
+        name: Mains / UPS Power
+
+      - entity: timer.{{SLUG}}_skimmer_restart_delay
+        name: Restart Delay Remaining
+
+  - type: conditional
+    conditions:
+      - entity: timer.{{SLUG}}_skimmer_restart_delay
+        state: active
+    card:
+      type: markdown
+      content: >
+        ⚠️ **Skimmer restart delayed** — waiting for the safety period after
+        power loss before switching back on, to avoid a foam-over from a
+        sudden restart.
+
+  - type: button
+    name: Force Restart Now (skip delay)
+    icon: mdi:play-circle
+    tap_action:
+      action: call-service
+      service: homeassistant.turn_on
+      target:
+        entity_id: switch.YOUR_SKIMMER_SWITCH
+    confirmation:
+      text: Skip the restart delay and turn the skimmer on immediately?

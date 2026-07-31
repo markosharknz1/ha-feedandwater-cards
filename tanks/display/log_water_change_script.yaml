@@ -1,0 +1,10 @@
+script:
+  display_log_water_change:
+    alias: "Display Tank - Log Water Change Now"
+    sequence:
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.display_last_water_change
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+    mode: single
