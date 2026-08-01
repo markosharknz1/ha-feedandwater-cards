@@ -97,7 +97,13 @@ working example: `tanks/display/` and `tanks/frag/`.
 4. **Blueprints** (once, shared) — import each file in
    `blueprints/automation/` via Settings > Automations & Scenes >
    Blueprints > Import Blueprint, or place them in
-   `config/blueprints/automation/reef/`.
+   `config/blueprints/automation/reef/`. One-click import, if your HA
+   instance is reachable from this browser (via
+   [My Home Assistant](https://www.home-assistant.io/integrations/my/)):
+
+   [![Open your Home Assistant instance and show the blueprint import dialog with the Feed Mode blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fmarkosharknz1%2Fha-feedandwater-cards%2Fmain%2Fblueprints%2Fautomation%2Freef_feed_mode.yaml)
+   [![Open your Home Assistant instance and show the blueprint import dialog with the Water Change Mode blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fmarkosharknz1%2Fha-feedandwater-cards%2Fmain%2Fblueprints%2Fautomation%2Freef_water_change_mode.yaml)
+   [![Open your Home Assistant instance and show the blueprint import dialog with the Skimmer Power-Loss Delay blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fmarkosharknz1%2Fha-feedandwater-cards%2Fmain%2Fblueprints%2Fautomation%2Freef_skimmer_power_delay.yaml)
 5. **Automations** — for *each* tank, create one automation from each of
    the three blueprints, selecting that tank's helpers as inputs (e.g.
    "Feed Mode Toggle" → `input_boolean.display_feed_mode`) and that tank's
