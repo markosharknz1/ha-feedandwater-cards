@@ -12,9 +12,14 @@ as the device shows up in Home Assistant as a `switch` or `fan` entity
 
 1. Check [Prerequisites](docs/PREREQUISITES.md) — what you need before
    you start.
-2. Run the generator for your tank:
+2. Run the generator for your tank — `<slug>` is a short lowercase
+   entity_id prefix, `"<Display Title>"` is the name shown on the
+   dashboard (replace both, don't type the `<>`):
    ```bash
    python3 generate_tank.py <slug> "<Display Title>"
+
+   # example:
+   python3 generate_tank.py display "Display Tank"
    ```
 3. Follow [Installation](docs/INSTALL.md) — paste in helpers, import the
    blueprints, wire up automations, add the dashboard cards.
