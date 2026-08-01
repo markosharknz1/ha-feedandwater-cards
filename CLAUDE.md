@@ -26,7 +26,11 @@ blueprints/automation/   3 shared automations (not tank-specific — take entity
 templates/                Source files with {{SLUG}}/{{TITLE}} placeholders
 generate_tank.py          python3 generate_tank.py <slug> "<Title>" — stamps out a tank
 tanks/display/, tanks/frag/   Two already-generated example tanks
-README.md                 Full install instructions, already written
+README.md                 Short landing page + quick start, links into docs/
+docs/                      Full documentation, split by topic (PREREQUISITES,
+                           INSTALL, FEED_MODE, WATER_CHANGE, DASHBOARD,
+                           COMPATIBILITY, CUSTOMIZING) — was one long README
+                           until 2026-08-01, split for readability
 ```
 
 ## Status — what's built vs. what's unverified
