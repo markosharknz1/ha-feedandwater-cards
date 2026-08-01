@@ -139,6 +139,16 @@ Skimmer, the three sliders, the two countdown timers, and the
 `input_text` helper used to remember pre-feed pump speed — all generated
 per-tank in `helpers.yaml`.
 
+**If a device's own integration ships a built-in feed/pause feature**
+(some Jebao integrations add a "Feed Duration" number + feed-mode
+buttons directly on the pump), don't use it alongside this blueprint —
+running both independently against the same device means two unrelated
+timers fighting over its state. Let this pack's feed mode own the
+sequence instead: the `Wavemaker(s)` and `Skimmer` inputs above are
+multi-entity selectors, so a single "Feed Time" toggle can pause and
+resume several devices (across brands) together on one timer, rather
+than triggering each device's own built-in feed feature one at a time.
+
 ## Water change: staged restart with adjustable delays
 
 Toggling "Water Change Time" ON immediately pauses return pump(s),
