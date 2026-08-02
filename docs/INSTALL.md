@@ -47,9 +47,10 @@ working example: `tanks/display/` and `tanks/frag/`.
    mean.
 6. **Dashboard cards** — `tanks/<slug>/dashboard/*.yaml`, plain or
    Mushroom, paste into a Lovelace view (one view per tank works well —
-   Settings > Dashboards > + Add View). `feed_settings_card.yaml` (the
-   duration/speed/buffer sliders) is meant for a separate, less-frequently
-   viewed settings view rather than the main tank dashboard — see
-   [Feed Mode](FEED_MODE.md) for why.
+   Settings > Dashboards > + Add View). `feed_settings_card.yaml` and
+   `water_change_settings_card.yaml` (sliders, delays, logging) are meant
+   for a separate, less-frequently viewed settings view rather than the
+   main tank dashboard — see [Feed Mode](FEED_MODE.md) and
+   [Water Change Mode](WATER_CHANGE.md) for why.
 
 Next: [Feed Mode](FEED_MODE.md) and [Water Change Mode](WATER_CHANGE.md).

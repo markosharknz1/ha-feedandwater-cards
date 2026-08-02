@@ -1,54 +1,56 @@
 type: vertical-stack
 cards:
-  - type: entities
-    title: "Frag Tank — Water Change"
-    show_header_toggle: false
-    entities:
-      - entity: input_boolean.frag_water_change_mode
-        name: Water Change Time
-        icon: mdi:water-sync
-
-      - type: divider
-
-      - entity: input_number.frag_wc_wavemaker_delay
-        name: Wavemaker Restart Delay
-
-      - entity: input_number.frag_wc_skimmer_delay
-        name: Skimmer Restart Delay
-
-      - type: divider
-
-      - entity: timer.frag_wc_wavemaker_countdown
-        name: Wavemaker Restarts In
-
-      - entity: timer.frag_wc_skimmer_countdown
-        name: Skimmer Restarts In
-
-      - type: divider
-
-      - entity: input_datetime.frag_last_water_change
-        name: Last Water Change
-
-      - entity: input_number.frag_water_change_volume_liters
-        name: Last Volume (L)
-
-  # Stage indicator — shows plain text for whichever stage is active
   - type: markdown
     content: >
       {% if is_state('input_boolean.frag_water_change_mode', 'on') %}
-      🔵 **Water change in progress** — return pump, wavemakers, and skimmer are paused. Tap "Water Change Time" off when you're done.
+      🔵 **Frag Tank — Water Change Paused** · tap Resume when done
       {% elif is_state('timer.frag_wc_wavemaker_countdown', 'active') %}
-      🟡 **Return pump restarted** — wavemakers restart in {{ relative_time(as_datetime(state_attr('timer.frag_wc_wavemaker_countdown','finishes_at'))) }}
+      🟡 **Frag Tank — Resuming** · wavemakers restart {{ relative_time(as_datetime(state_attr('timer.frag_wc_wavemaker_countdown','finishes_at'))) }}
       {% elif is_state('timer.frag_wc_skimmer_countdown', 'active') %}
-      🟠 **Wavemakers restarted** — skimmer restarts in {{ relative_time(as_datetime(state_attr('timer.frag_wc_skimmer_countdown','finishes_at'))) }}
+      🟠 **Frag Tank — Resuming** · skimmer restarts {{ relative_time(as_datetime(state_attr('timer.frag_wc_skimmer_countdown','finishes_at'))) }}
       {% else %}
-      🟢 **All equipment running normally**
+      🟢 **Frag Tank — Idle**
       {% endif %}
 
-  # Needs script.frag_log_water_change — see log_water_change_script.yaml.tmpl
-  - type: button
-    name: Log Water Change Now
-    icon: mdi:calendar-check
-    tap_action:
-      action: call-service
-      service: script.frag_log_water_change
+  # Idle: nothing paused, no restart in progress — offer to start
+  - type: conditional
+    conditions:
+      - entity: input_boolean.frag_water_change_mode
+        state: "off"
+      - entity: timer.frag_wc_wavemaker_countdown
+        state: ["idle", "paused"]
+      - entity: timer.frag_wc_skimmer_countdown
+        state: ["idle", "paused"]
+    card:
+      type: button
+      name: Start Water Change
+      icon: mdi:water-sync
+      tap_action:
+        action: call-service
+        service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.frag_water_change_mode
+      confirmation: false
+
+  # Paused: return pump/wavemakers/skimmer all off — offer to resume
+  - type: conditional
+    conditions:
+      - entity: input_boolean.frag_water_change_mode
+        state: "on"
+    card:
+      type: button
+      name: Resume (Staged Restart)
+      icon: mdi:play-circle-outline
+      tap_action:
+        action: call-service
+        service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.frag_water_change_mode
+      confirmation: false
+
+# No button while the staged restart itself is running (toggle already
+# off, one or both countdown timers still active) — nothing to tap, the
+# status line above already reports progress. Wavemaker/skimmer restart
+# delays, last-change log, and volume live in
+# water_change_settings_card.yaml — see feed_settings_card.yaml for why
+# these stay off the main multi-tank dashboard.

@@ -1,0 +1,32 @@
+# Water Change settings for Display Tank — restart delays and change-logging
+# controls you use occasionally, not part of the pause/resume tap flow on
+# the main dashboard. Put this on a separate "settings" view, not the
+# multi-tank shop screen — see water_change_card.yaml for the compact
+# pause/resume control.
+type: vertical-stack
+cards:
+  - type: entities
+    title: "Display Tank — Water Change Settings"
+    show_header_toggle: false
+    entities:
+      - entity: input_number.display_wc_wavemaker_delay
+        name: Wavemaker Restart Delay
+
+      - entity: input_number.display_wc_skimmer_delay
+        name: Skimmer Restart Delay
+
+      - type: divider
+
+      - entity: input_datetime.display_last_water_change
+        name: Last Water Change
+
+      - entity: input_number.display_water_change_volume_liters
+        name: Last Volume (L)
+
+  # Needs script.display_log_water_change — see log_water_change_script.yaml.tmpl
+  - type: button
+    name: Log Water Change Now
+    icon: mdi:calendar-check
+    tap_action:
+      action: call-service
+      service: script.display_log_water_change

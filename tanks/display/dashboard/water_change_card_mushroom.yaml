@@ -1,64 +1,63 @@
 type: vertical-stack
 cards:
-  - type: custom:mushroom-title-card
-    title: "Display Tank — Water Change"
-    subtitle: Staged pause & restart
-
-  - type: custom:mushroom-entity-card
-    entity: input_boolean.display_water_change_mode
-    name: Water Change Time
-    icon: mdi:water-sync
-    icon_color: >
-      {% if is_state('input_boolean.display_water_change_mode', 'on') %}blue{% else %}grey{% endif %}
-    tap_action:
-      action: toggle
-
   - type: custom:mushroom-template-card
-    primary: >
-      {% if is_state('input_boolean.display_water_change_mode', 'on') %}
-        Paused — return pump, wavemakers, skimmer all off
-      {% elif is_state('timer.display_wc_wavemaker_countdown', 'active') %}
-        Wavemakers restart {{ relative_time(as_datetime(state_attr('timer.display_wc_wavemaker_countdown','finishes_at'))) }}
-      {% elif is_state('timer.display_wc_skimmer_countdown', 'active') %}
-        Skimmer restarts {{ relative_time(as_datetime(state_attr('timer.display_wc_skimmer_countdown','finishes_at'))) }}
-      {% else %}
-        All equipment running normally
-      {% endif %}
+    primary: "Display Tank"
     secondary: >
-      {% if is_state('input_boolean.display_water_change_mode', 'off')
-         and not is_state('timer.display_wc_wavemaker_countdown', 'active')
-         and not is_state('timer.display_wc_skimmer_countdown', 'active') %}
-        Last change: {{ relative_time(states.input_datetime.display_last_water_change.last_changed) }}
+      {% if is_state('input_boolean.display_water_change_mode', 'on') %}
+        Paused — tap Resume when done
+      {% elif is_state('timer.display_wc_wavemaker_countdown', 'active') %}
+        Resuming — wavemakers restart {{ relative_time(as_datetime(state_attr('timer.display_wc_wavemaker_countdown','finishes_at'))) }}
+      {% elif is_state('timer.display_wc_skimmer_countdown', 'active') %}
+        Resuming — skimmer restarts {{ relative_time(as_datetime(state_attr('timer.display_wc_skimmer_countdown','finishes_at'))) }}
       {% else %}
-        Staged restart in progress
+        Idle
       {% endif %}
-    icon: mdi:cup-water
+    icon: mdi:water-sync
     icon_color: >
       {% if is_state('input_boolean.display_water_change_mode', 'on') %}blue
       {% elif is_state('timer.display_wc_wavemaker_countdown', 'active') or is_state('timer.display_wc_skimmer_countdown', 'active') %}orange
       {% else %}green{% endif %}
 
-  - type: custom:mushroom-number-card
-    entity: input_number.display_wc_wavemaker_delay
-    name: Wavemaker Restart Delay
-    display_mode: slider
-    icon: mdi:timer-sand
+  - type: custom:mushroom-chips-card
+    alignment: start
+    chips:
+      # Idle: offer to start
+      - type: conditional
+        conditions:
+          - entity: input_boolean.display_water_change_mode
+            state: "off"
+          - entity: timer.display_wc_wavemaker_countdown
+            state: ["idle", "paused"]
+          - entity: timer.display_wc_skimmer_countdown
+            state: ["idle", "paused"]
+        chip:
+          type: template
+          icon: mdi:water-sync
+          icon_color: green
+          content: Start Water Change
+          tap_action:
+            action: call-service
+            service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.display_water_change_mode
 
-  - type: custom:mushroom-number-card
-    entity: input_number.display_wc_skimmer_delay
-    name: Skimmer Restart Delay
-    display_mode: slider
-    icon: mdi:timer-sand
+      # Paused: offer to resume (triggers the staged restart)
+      - type: conditional
+        conditions:
+          - entity: input_boolean.display_water_change_mode
+            state: "on"
+        chip:
+          type: template
+          icon: mdi:play-circle-outline
+          icon_color: blue
+          content: Resume
+          tap_action:
+            action: call-service
+            service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.display_water_change_mode
 
-  - type: custom:mushroom-number-card
-    entity: input_number.display_water_change_volume_liters
-    name: Volume This Change (L)
-    display_mode: buttons
-
-  # Needs script.display_log_water_change — see log_water_change_script.yaml.tmpl
-  - type: custom:mushroom-template-card
-    primary: Log Water Change Now
-    icon: mdi:calendar-check
-    tap_action:
-      action: call-service
-      service: script.display_log_water_change
+# No chip while the staged restart itself is running — nothing to tap,
+# the status line above already reports progress. Wavemaker/skimmer
+# restart delays, last-change log, and volume live in
+# water_change_settings_card_mushroom.yaml.

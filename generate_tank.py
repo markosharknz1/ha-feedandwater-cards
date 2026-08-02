@@ -46,6 +46,8 @@ FILES = [
     ("feed_settings_card_mushroom.yaml.tmpl", "dashboard/feed_settings_card_mushroom.yaml"),
     ("water_change_card.yaml.tmpl", "dashboard/water_change_card.yaml"),
     ("water_change_card_mushroom.yaml.tmpl", "dashboard/water_change_card_mushroom.yaml"),
+    ("water_change_settings_card.yaml.tmpl", "dashboard/water_change_settings_card.yaml"),
+    ("water_change_settings_card_mushroom.yaml.tmpl", "dashboard/water_change_settings_card_mushroom.yaml"),
     ("skimmer_card.yaml.tmpl", "dashboard/skimmer_card.yaml"),
     ("skimmer_card_mushroom.yaml.tmpl", "dashboard/skimmer_card_mushroom.yaml"),
     ("off_duration_dashboard.yaml.tmpl", "dashboard/off_duration_dashboard.yaml"),
