@@ -1,34 +1,14 @@
 type: vertical-stack
 cards:
-  - type: custom:mushroom-title-card
-    title: "Frag Tank — Feed Mode"
-    subtitle: Wavemakers, return pump speed & skimmer
-
-  - type: custom:mushroom-entity-card
-    entity: input_boolean.frag_feed_mode
-    name: Feed Time
-    icon: mdi:food-drumstick
-    icon_color: >
-      {% if is_state('input_boolean.frag_feed_mode', 'on') %}orange{% else %}grey{% endif %}
-    tap_action:
-      action: toggle
-
   - type: custom:mushroom-template-card
-    primary: >
-      {% if is_state('input_boolean.frag_feed_mode', 'off')
-         and not is_state('timer.frag_feed_mode', 'active')
-         and not is_state('timer.frag_feed_skimmer_off', 'active') %}
-        All equipment running normally
-      {% elif is_state('timer.frag_feed_mode', 'active') %}
-        Feeding — wavemakers resume {{ relative_time(as_datetime(state_attr('timer.frag_feed_mode','finishes_at'))) }}
+    primary: "Frag Tank"
+    secondary: >
+      {% if is_state('timer.frag_feed_mode', 'active') %}
+        Feeding — resumes {{ relative_time(as_datetime(state_attr('timer.frag_feed_mode','finishes_at'))) }}
       {% elif is_state('timer.frag_feed_skimmer_off', 'active') %}
         Settling — skimmer resumes {{ relative_time(as_datetime(state_attr('timer.frag_feed_skimmer_off','finishes_at'))) }}
       {% else %}
-        Feed mode starting…
-      {% endif %}
-    secondary: >
-      {% if is_state('timer.frag_feed_mode', 'active') %}
-        Return pump at {{ states('input_number.frag_feed_return_pump_percent') }}% · skimmer paused
+        Idle
       {% endif %}
     icon: mdi:food-drumstick
     icon_color: >
@@ -36,20 +16,54 @@ cards:
       {% elif is_state('timer.frag_feed_skimmer_off', 'active') %}orange
       {% else %}green{% endif %}
 
-  - type: custom:mushroom-number-card
-    entity: input_number.frag_feed_duration_minutes
-    name: Feed Duration
-    display_mode: slider
-    icon: mdi:timer-outline
+  - type: custom:mushroom-chips-card
+    alignment: start
+    chips:
+      - type: conditional
+        conditions:
+          - entity: input_boolean.frag_feed_mode
+            state: "off"
+        chip:
+          type: template
+          icon: mdi:food-drumstick
+          icon_color: green
+          content: Start Feed
+          tap_action:
+            action: call-service
+            service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.frag_feed_mode
 
-  - type: custom:mushroom-number-card
-    entity: input_number.frag_feed_return_pump_percent
-    name: Return Pump Feed Speed
-    display_mode: slider
-    icon: mdi:speedometer-slow
+      - type: conditional
+        conditions:
+          - entity: input_boolean.frag_feed_mode
+            state: "off"
+        chip:
+          type: template
+          icon: mdi:infinity
+          icon_color: grey
+          content: Until I Stop
+          tap_action:
+            action: call-service
+            service: script.frag_start_feed_indefinite
 
-  - type: custom:mushroom-number-card
-    entity: input_number.frag_feed_skimmer_extra_minutes
-    name: Skimmer Extra Off Time
-    display_mode: slider
-    icon: mdi:timer-plus-outline
+      - type: conditional
+        conditions:
+          - entity: input_boolean.frag_feed_mode
+            state: "on"
+        chip:
+          type: template
+          icon: mdi:stop-circle-outline
+          icon_color: red
+          content: Stop Feeding
+          tap_action:
+            action: call-service
+            service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.frag_feed_mode
+
+# Duration / return-pump-speed / skimmer-buffer sliders live in
+# feed_settings_card_mushroom.yaml — tuned occasionally, not part of the
+# per-feed tap flow, and kept off the main multi-tank dashboard so this
+# card stays a fixed 2-row footprint no matter how many tanks share the
+# screen.

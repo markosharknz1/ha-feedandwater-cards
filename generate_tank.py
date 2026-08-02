@@ -42,6 +42,8 @@ FILES = [
     ("flow_wavemaker_card_mushroom.yaml.tmpl", "dashboard/flow_wavemaker_card_mushroom.yaml"),
     ("feed_card.yaml.tmpl", "dashboard/feed_card.yaml"),
     ("feed_card_mushroom.yaml.tmpl", "dashboard/feed_card_mushroom.yaml"),
+    ("feed_settings_card.yaml.tmpl", "dashboard/feed_settings_card.yaml"),
+    ("feed_settings_card_mushroom.yaml.tmpl", "dashboard/feed_settings_card_mushroom.yaml"),
     ("water_change_card.yaml.tmpl", "dashboard/water_change_card.yaml"),
     ("water_change_card_mushroom.yaml.tmpl", "dashboard/water_change_card_mushroom.yaml"),
     ("skimmer_card.yaml.tmpl", "dashboard/skimmer_card.yaml"),

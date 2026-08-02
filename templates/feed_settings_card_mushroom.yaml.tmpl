@@ -1,0 +1,26 @@
+# Feed Mode settings for {{TITLE}} — duration/speed/buffer sliders you tune
+# occasionally, not part of the per-feed tap flow on the main dashboard.
+# Put this on a separate "settings" view, not the multi-tank shop screen —
+# see feed_card_mushroom.yaml for the compact per-feed control.
+type: vertical-stack
+cards:
+  - type: custom:mushroom-title-card
+    title: "{{TITLE}} — Feed Settings"
+
+  - type: custom:mushroom-number-card
+    entity: input_number.{{SLUG}}_feed_duration_minutes
+    name: Feed Duration
+    display_mode: slider
+    icon: mdi:timer-outline
+
+  - type: custom:mushroom-number-card
+    entity: input_number.{{SLUG}}_feed_return_pump_percent
+    name: Return Pump Feed Speed
+    display_mode: slider
+    icon: mdi:speedometer-slow
+
+  - type: custom:mushroom-number-card
+    entity: input_number.{{SLUG}}_feed_skimmer_extra_minutes
+    name: Skimmer Extra Off Time
+    display_mode: slider
+    icon: mdi:timer-plus-outline

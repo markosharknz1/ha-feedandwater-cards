@@ -1,6 +1,31 @@
 # Feed mode: wavemakers + return pump speed + skimmer, one sequence
 
-Tapping "Feed Time" ON runs three things at once:
+## The dashboard control
+
+`feed_card.yaml`/`feed_card_mushroom.yaml` is deliberately compact — a
+one-line status ("Idle" / "Feeding" / "Settling") plus two or three small
+buttons, sized so a shop floor with 5-10 tank screens stacked together
+stays scannable rather than turning into a wall of sliders:
+
+- **Start Feed** — begins feeding using whatever duration/speed/buffer
+  values are currently set (see below).
+- **Until I Stop** — starts feeding at the *maximum* duration (60 min,
+  far longer than any real feeding session) instead of whatever the
+  duration slider is currently set to. There's no true "no timer" mode —
+  it's the same timed automation underneath, just started with a duration
+  long enough that you'll always tap "Stop Feeding" yourself first.
+- **Stop Feeding** (replaces the two buttons above while feeding) — ends
+  the sequence early. Wavemakers and return pump speed restore
+  immediately; the skimmer still finishes its safety buffer (see below).
+
+The duration/return-pump-speed/skimmer-buffer sliders live in a separate
+**`feed_settings_card.yaml`/`feed_settings_card_mushroom.yaml`** — tuned
+occasionally, not part of the per-feed tap flow, and meant for a
+secondary "settings" view rather than the main multi-tank dashboard.
+
+## What actually happens
+
+Starting feed mode (via either button above) runs three things at once:
 
 1. **Wavemakers pause** — resume automatically after "Feed Duration"
    (slider, default 20 min).
@@ -16,13 +41,15 @@ Tapping "Feed Time" ON runs three things at once:
    Duration mark; the skimmer (and, if used, the return pump's final
    restore-to-normal) happens at the later Feed Duration + Extra mark.
 
-The feed card shows a live stage indicator: "Feeding" while wavemakers are
-paused, then "Settling" once wavemakers are back but the skimmer is still
-waiting. Toggling "Feed Time" off manually cancels early — wavemakers and
+The feed card's status line reflects this live: "Feeding" while wavemakers
+are paused, then "Settling" once wavemakers are back but the skimmer is
+still waiting. Tapping "Stop Feeding" cancels early — wavemakers and
 return pump speed restore immediately, but the **skimmer still waits out
 its full buffer time** (re-timed from the moment you cancel, not the
 original schedule), so an early cancel can't accidentally skip the
-settling period the buffer exists for.
+settling period the buffer exists for. This is exactly what "Until I
+Stop" relies on in practice — it starts a long-duration feed and expects
+you to end it with "Stop Feeding" rather than waiting for the timer.
 
 When creating the automation from `reef_feed_mode.yaml`, you'll map:
 Wavemaker(s), Return Pump Speed Control(s) (optional `number` entities),

@@ -1,53 +1,61 @@
 type: vertical-stack
 cards:
-  - type: entities
-    title: "{{TITLE}} — Feed Mode"
-    show_header_toggle: false
-    entities:
-      - entity: input_boolean.{{SLUG}}_feed_mode
-        name: Feed Time
-        icon: mdi:food-drumstick
-
-      - type: divider
-
-      - entity: input_number.{{SLUG}}_feed_duration_minutes
-        name: Feed Duration (wavemakers off)
-
-      - entity: input_number.{{SLUG}}_feed_return_pump_percent
-        name: Return Pump Feed Speed
-
-      - entity: input_number.{{SLUG}}_feed_skimmer_extra_minutes
-        name: Skimmer Extra Off Time (after feed)
-
-      - type: divider
-
-      - entity: timer.{{SLUG}}_feed_mode
-        name: Wavemakers Resume In
-
-      - entity: timer.{{SLUG}}_feed_skimmer_off
-        name: Skimmer Resumes In
-
-  # Stage indicator
   - type: markdown
     content: >
-      {% if is_state('input_boolean.{{SLUG}}_feed_mode', 'off')
-         and not is_state('timer.{{SLUG}}_feed_mode', 'active')
-         and not is_state('timer.{{SLUG}}_feed_skimmer_off', 'active') %}
-      🟢 **All equipment running normally**
-      {% elif is_state('timer.{{SLUG}}_feed_mode', 'active') %}
-      🔵 **Feeding** — wavemakers off, return pump reduced, skimmer off. Wavemakers resume {{ relative_time(as_datetime(state_attr('timer.{{SLUG}}_feed_mode','finishes_at'))) }}
+      {% if is_state('timer.{{SLUG}}_feed_mode', 'active') %}
+      🔵 **{{TITLE}} — Feeding** · wavemakers resume {{ relative_time(as_datetime(state_attr('timer.{{SLUG}}_feed_mode','finishes_at'))) }}
       {% elif is_state('timer.{{SLUG}}_feed_skimmer_off', 'active') %}
-      🟡 **Settling** — wavemakers and return pump back to normal, skimmer still paused. Skimmer resumes {{ relative_time(as_datetime(state_attr('timer.{{SLUG}}_feed_skimmer_off','finishes_at'))) }}
+      🟡 **{{TITLE}} — Settling** · skimmer resumes {{ relative_time(as_datetime(state_attr('timer.{{SLUG}}_feed_skimmer_off','finishes_at'))) }}
       {% else %}
-      🔵 **Feed mode starting…**
+      🟢 **{{TITLE}} — Idle**
       {% endif %}
 
-  - type: button
-    name: Feed Time
-    icon: mdi:food-drumstick
-    tap_action:
-      action: call-service
-      service: input_boolean.turn_on
-      target:
-        entity_id: input_boolean.{{SLUG}}_feed_mode
-    confirmation: false
+  - type: horizontal-stack
+    cards:
+      - type: conditional
+        conditions:
+          - entity: input_boolean.{{SLUG}}_feed_mode
+            state: "off"
+        card:
+          type: button
+          name: Start Feed
+          icon: mdi:food-drumstick
+          tap_action:
+            action: call-service
+            service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.{{SLUG}}_feed_mode
+          confirmation: false
+
+      - type: conditional
+        conditions:
+          - entity: input_boolean.{{SLUG}}_feed_mode
+            state: "off"
+        card:
+          type: button
+          name: Until I Stop
+          icon: mdi:infinity
+          tap_action:
+            action: call-service
+            service: script.{{SLUG}}_start_feed_indefinite
+          confirmation: false
+
+      - type: conditional
+        conditions:
+          - entity: input_boolean.{{SLUG}}_feed_mode
+            state: "on"
+        card:
+          type: button
+          name: Stop Feeding
+          icon: mdi:stop-circle-outline
+          tap_action:
+            action: call-service
+            service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.{{SLUG}}_feed_mode
+          confirmation: false
+
+# Duration / return-pump-speed / skimmer-buffer sliders live in
+# feed_settings_card.yaml — tuned occasionally, not part of the per-feed
+# tap flow, and kept off the main multi-tank dashboard so this card stays
+# a fixed 2-row footprint no matter how many tanks share the screen.
