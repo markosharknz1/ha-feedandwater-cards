@@ -1,0 +1,69 @@
+type: vertical-stack
+cards:
+  - type: custom:mushroom-template-card
+    primary: "Test Tank"
+    secondary: >
+      {% if is_state('timer.test_feed_mode', 'active') %}
+        Feeding — resumes {{ relative_time(as_datetime(state_attr('timer.test_feed_mode','finishes_at'))) }}
+      {% elif is_state('timer.test_feed_skimmer_off', 'active') %}
+        Settling — skimmer resumes {{ relative_time(as_datetime(state_attr('timer.test_feed_skimmer_off','finishes_at'))) }}
+      {% else %}
+        Idle
+      {% endif %}
+    icon: mdi:food-drumstick
+    icon_color: >
+      {% if is_state('timer.test_feed_mode', 'active') %}blue
+      {% elif is_state('timer.test_feed_skimmer_off', 'active') %}orange
+      {% else %}green{% endif %}
+
+  - type: custom:mushroom-chips-card
+    alignment: start
+    chips:
+      - type: conditional
+        conditions:
+          - entity: input_boolean.test_feed_mode
+            state: "off"
+        chip:
+          type: template
+          icon: mdi:food-drumstick
+          icon_color: green
+          content: Start Feed
+          tap_action:
+            action: call-service
+            service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.test_feed_mode
+
+      - type: conditional
+        conditions:
+          - entity: input_boolean.test_feed_mode
+            state: "off"
+        chip:
+          type: template
+          icon: mdi:infinity
+          icon_color: grey
+          content: Until I Stop
+          tap_action:
+            action: call-service
+            service: script.test_start_feed_indefinite
+
+      - type: conditional
+        conditions:
+          - entity: input_boolean.test_feed_mode
+            state: "on"
+        chip:
+          type: template
+          icon: mdi:stop-circle-outline
+          icon_color: red
+          content: Stop Feeding
+          tap_action:
+            action: call-service
+            service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.test_feed_mode
+
+# Duration / return-pump-speed / skimmer-buffer sliders live in
+# feed_settings_card_mushroom.yaml — tuned occasionally, not part of the
+# per-feed tap flow, and kept off the main multi-tank dashboard so this
+# card stays a fixed 2-row footprint no matter how many tanks share the
+# screen.

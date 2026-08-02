@@ -1,0 +1,61 @@
+type: vertical-stack
+cards:
+  - type: markdown
+    content: >
+      {% if is_state('timer.test_feed_mode', 'active') %}
+      🔵 **Test Tank — Feeding** · wavemakers resume {{ relative_time(as_datetime(state_attr('timer.test_feed_mode','finishes_at'))) }}
+      {% elif is_state('timer.test_feed_skimmer_off', 'active') %}
+      🟡 **Test Tank — Settling** · skimmer resumes {{ relative_time(as_datetime(state_attr('timer.test_feed_skimmer_off','finishes_at'))) }}
+      {% else %}
+      🟢 **Test Tank — Idle**
+      {% endif %}
+
+  - type: horizontal-stack
+    cards:
+      - type: conditional
+        conditions:
+          - entity: input_boolean.test_feed_mode
+            state: "off"
+        card:
+          type: button
+          name: Start Feed
+          icon: mdi:food-drumstick
+          tap_action:
+            action: call-service
+            service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.test_feed_mode
+          confirmation: false
+
+      - type: conditional
+        conditions:
+          - entity: input_boolean.test_feed_mode
+            state: "off"
+        card:
+          type: button
+          name: Until I Stop
+          icon: mdi:infinity
+          tap_action:
+            action: call-service
+            service: script.test_start_feed_indefinite
+          confirmation: false
+
+      - type: conditional
+        conditions:
+          - entity: input_boolean.test_feed_mode
+            state: "on"
+        card:
+          type: button
+          name: Stop Feeding
+          icon: mdi:stop-circle-outline
+          tap_action:
+            action: call-service
+            service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.test_feed_mode
+          confirmation: false
+
+# Duration / return-pump-speed / skimmer-buffer sliders live in
+# feed_settings_card.yaml — tuned occasionally, not part of the per-feed
+# tap flow, and kept off the main multi-tank dashboard so this card stays
+# a fixed 2-row footprint no matter how many tanks share the screen.

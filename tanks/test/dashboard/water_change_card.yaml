@@ -1,0 +1,56 @@
+type: vertical-stack
+cards:
+  - type: markdown
+    content: >
+      {% if is_state('input_boolean.test_water_change_mode', 'on') %}
+      🔵 **Test Tank — Water Change Paused** · tap Resume when done
+      {% elif is_state('timer.test_wc_wavemaker_countdown', 'active') %}
+      🟡 **Test Tank — Resuming** · wavemakers restart {{ relative_time(as_datetime(state_attr('timer.test_wc_wavemaker_countdown','finishes_at'))) }}
+      {% elif is_state('timer.test_wc_skimmer_countdown', 'active') %}
+      🟠 **Test Tank — Resuming** · skimmer restarts {{ relative_time(as_datetime(state_attr('timer.test_wc_skimmer_countdown','finishes_at'))) }}
+      {% else %}
+      🟢 **Test Tank — Idle**
+      {% endif %}
+
+  # Idle: nothing paused, no restart in progress — offer to start
+  - type: conditional
+    conditions:
+      - entity: input_boolean.test_water_change_mode
+        state: "off"
+      - entity: timer.test_wc_wavemaker_countdown
+        state: ["idle", "paused"]
+      - entity: timer.test_wc_skimmer_countdown
+        state: ["idle", "paused"]
+    card:
+      type: button
+      name: Start Water Change
+      icon: mdi:water-sync
+      tap_action:
+        action: call-service
+        service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.test_water_change_mode
+      confirmation: false
+
+  # Paused: return pump/wavemakers/skimmer all off — offer to resume
+  - type: conditional
+    conditions:
+      - entity: input_boolean.test_water_change_mode
+        state: "on"
+    card:
+      type: button
+      name: Resume (Staged Restart)
+      icon: mdi:play-circle-outline
+      tap_action:
+        action: call-service
+        service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.test_water_change_mode
+      confirmation: false
+
+# No button while the staged restart itself is running (toggle already
+# off, one or both countdown timers still active) — nothing to tap, the
+# status line above already reports progress. Wavemaker/skimmer restart
+# delays, last-change log, and volume live in
+# water_change_settings_card.yaml — see feed_settings_card.yaml for why
+# these stay off the main multi-tank dashboard.

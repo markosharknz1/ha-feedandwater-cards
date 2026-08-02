@@ -1,0 +1,126 @@
+# ============================================================================
+# HELPERS — Test Tank
+# Generated from templates/helpers.yaml.tmpl — do not hand-edit if you plan
+# to regenerate later; edit the template instead.
+# ============================================================================
+
+input_select:
+  test_flow_mode:
+    name: "Test Tank Flow Mode"
+    icon: mdi:waves
+    options:
+      - "Reef Crest"
+      - "Nutrient Export"
+      - "Feed"
+
+input_boolean:
+  test_feed_mode:
+    name: "Test Tank Feed Mode"
+    icon: mdi:food-drumstick
+
+  test_water_change_mode:
+    name: "Test Tank Water Change Mode"
+    icon: mdi:water-sync
+
+input_number:
+  test_feed_duration_minutes:
+    name: "Test Tank Feed Mode Duration"
+    icon: mdi:timer-outline
+    mode: slider
+    min: 1
+    max: 60
+    step: 1
+    unit_of_measurement: min
+    initial: 20
+
+  test_feed_return_pump_percent:
+    name: "Test Tank Return Pump Feed Speed"
+    icon: mdi:speedometer-slow
+    mode: slider
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    initial: 30
+
+  test_feed_skimmer_extra_minutes:
+    name: "Test Tank Skimmer Extra Off Time (after feed ends)"
+    icon: mdi:timer-plus-outline
+    mode: slider
+    min: 0
+    max: 30
+    step: 1
+    unit_of_measurement: min
+    initial: 10
+
+  test_water_change_volume_liters:
+    name: "Test Tank Last Water Change Volume"
+    icon: mdi:cup-water
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: L
+
+  test_wc_wavemaker_delay:
+    name: "Test Tank Return Pump \u2192 Wavemaker Delay"
+    icon: mdi:timer-sand
+    mode: slider
+    min: 0
+    max: 30
+    step: 1
+    unit_of_measurement: min
+    initial: 5
+
+  test_wc_skimmer_delay:
+    name: "Test Tank Wavemaker \u2192 Skimmer Delay"
+    icon: mdi:timer-sand
+    mode: slider
+    min: 0
+    max: 30
+    step: 1
+    unit_of_measurement: min
+    initial: 10
+
+input_datetime:
+  test_last_water_change:
+    name: "Test Tank Last Water Change"
+    has_date: true
+    has_time: true
+
+input_text:
+  test_tracked_devices:
+    name: "Test Tank Tracked Devices (comma-separated entity_ids)"
+    icon: mdi:format-list-bulleted
+    max: 255
+    initial: ""
+
+  test_feed_return_pump_prior:
+    name: "Test Tank Return Pump Speed Before Feed (internal storage)"
+    icon: mdi:content-save-outline
+    max: 255
+    initial: ""
+
+timer:
+  test_feed_mode:
+    name: "Test Tank Feed Mode Timer (wavemakers)"
+    duration: "00:20:00"
+
+  test_feed_skimmer_off:
+    name: "Test Tank Feed Mode Timer (skimmer)"
+    duration: "00:30:00"
+
+  test_skimmer_restart_delay:
+    name: "Test Tank Skimmer Restart Delay"
+    duration: "00:05:00"
+
+  test_water_change_safety:
+    name: "Test Tank Water Change Safety Timer"
+    duration: "02:00:00"
+
+  test_wc_wavemaker_countdown:
+    name: "Test Tank Wavemaker Restart Countdown"
+    duration: "00:05:00"
+
+  test_wc_skimmer_countdown:
+    name: "Test Tank Skimmer Restart Countdown"
+    duration: "00:10:00"

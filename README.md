@@ -56,8 +56,12 @@ reef-ha-cards/
     │   ├── off_duration_sensor.yaml
     │   ├── log_water_change_script.yaml
     │   └── dashboard/*.yaml
-    └── frag/
-        └── ... same structure, fully separate entity_ids
+    ├── frag/
+    │   └── ... same structure, fully separate entity_ids
+    └── test/
+        └── practice tank for walking through blueprint import +
+            automation creation against HA's built-in Demo integration,
+            before wiring in real hardware — see tanks/test/README.md
 ```
 
 ## Why it's split this way

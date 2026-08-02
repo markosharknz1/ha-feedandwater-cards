@@ -1,0 +1,10 @@
+type: entities
+title: "Test Tank — Flow / Wavemakers"
+show_header_toggle: false
+entities:
+  - entity: input_select.test_flow_mode
+    name: Flow Mode
+    icon: mdi:waves
+
+# Feeding is handled by its own card (feed_card.yaml) — it controls
+# wavemakers, return pump speed, and skimmer together as one sequence.

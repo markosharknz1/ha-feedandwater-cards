@@ -1,0 +1,24 @@
+# Feed Mode settings for Test Tank — duration/speed/buffer sliders you tune
+# occasionally, not part of the per-feed tap flow on the main dashboard.
+# Put this on a separate "settings" view, not the multi-tank shop screen —
+# see feed_card.yaml for the compact per-feed control.
+type: entities
+title: "Test Tank — Feed Settings"
+show_header_toggle: false
+entities:
+  - entity: input_number.test_feed_duration_minutes
+    name: Feed Duration (wavemakers off)
+
+  - entity: input_number.test_feed_return_pump_percent
+    name: Return Pump Feed Speed
+
+  - entity: input_number.test_feed_skimmer_extra_minutes
+    name: Skimmer Extra Off Time (after feed)
+
+  - type: divider
+
+  - entity: timer.test_feed_mode
+    name: Wavemakers Resume In
+
+  - entity: timer.test_feed_skimmer_off
+    name: Skimmer Resumes In
