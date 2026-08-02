@@ -1,0 +1,480 @@
+"""Per-tank orchestration logic — the Python port of the YAML flavor's
+three automation blueprints (reef_feed_mode, reef_water_change_mode,
+reef_skimmer_power_delay). Behavior was live-verified in blueprint form
+against a real HA instance before this port; the sequencing rules below
+must stay identical to the blueprints unless both are changed together.
+"""
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Any
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import (
+    async_track_point_in_time,
+    async_track_state_change_event,
+)
+from homeassistant.util import dt as dt_util
+
+from .const import (
+    CONF_POWER_SENSOR,
+    CONF_PUMP_SPEED_CONTROLS,
+    CONF_RETURN_PUMPS,
+    CONF_SKIMMERS,
+    CONF_SLUG,
+    CONF_WAVEMAKERS,
+    FEED_FEEDING,
+    FEED_IDLE,
+    FEED_SETTLING,
+    NUMBER_SPECS,
+    SAFETY_TIMEOUT_HOURS,
+    VALUE_POWER_LOSS_DELAY,
+    VALUE_RETURN_PUMP_FEED_SPEED,
+    VALUE_SKIMMER_EXTRA_OFF,
+    VALUE_SKIMMER_RESTART_DELAY,
+    VALUE_WAVEMAKER_RESTART_DELAY,
+    WC_IDLE,
+    WC_PAUSED,
+    WC_RESTARTING_SKIMMER,
+    WC_RESTARTING_WAVEMAKERS,
+)
+
+
+class _Notifier:
+    """Minimal listener registry: stage sensors subscribe to be told when
+    controller state changes so they can write their HA state."""
+
+    def __init__(self) -> None:
+        self._listeners: list[Callable[[], None]] = []
+
+    @callback
+    def async_add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:
+        self._listeners.append(cb)
+
+        def _remove() -> None:
+            if cb in self._listeners:
+                self._listeners.remove(cb)
+
+        return _remove
+
+    @callback
+    def _notify(self) -> None:
+        for cb in list(self._listeners):
+            cb()
+
+
+@dataclass
+class TankData:
+    """Everything for one tank (one config entry), shared by all platforms.
+
+    Number/text entities write their current values in here (instead of the
+    controllers depending on entity_ids, which users can rename) and the
+    controllers read from it.
+    """
+
+    hass: HomeAssistant
+    entry: ConfigEntry
+    values: dict[str, float] = field(
+        default_factory=lambda: {key: spec[0] for key, spec in NUMBER_SPECS.items()}
+    )
+    tracked_devices: str = ""
+    last_water_change: datetime | None = None
+    last_water_change_listeners: _Notifier = field(default_factory=_Notifier)
+    feed: "FeedController" = field(init=False)
+    water: "WaterChangeController" = field(init=False)
+    power: "PowerLossController | None" = field(init=False, default=None)
+
+    def __post_init__(self) -> None:
+        self.feed = FeedController(self)
+        self.water = WaterChangeController(self)
+        if self.entry.options.get(CONF_POWER_SENSOR):
+            self.power = PowerLossController(self)
+
+    @property
+    def slug(self) -> str:
+        return self.entry.data[CONF_SLUG]
+
+    def option_entities(self, key: str) -> list[str]:
+        value = self.entry.options.get(key) or []
+        if isinstance(value, str):
+            return [value]
+        return list(value)
+
+    async def async_turn(self, service: str, entity_ids: list[str]) -> None:
+        """homeassistant.turn_on/turn_off — domain-agnostic on purpose, the
+        same guarantee the blueprints give (switch and fan both work)."""
+        if not entity_ids:
+            return
+        await self.hass.services.async_call(
+            "homeassistant", service, {"entity_id": entity_ids}, blocking=True
+        )
+
+    async def async_set_speed(self, entity_id: str, value: float) -> None:
+        await self.hass.services.async_call(
+            "number", "set_value", {"entity_id": entity_id, "value": value}, blocking=True
+        )
+
+    @callback
+    def async_log_water_change(self) -> None:
+        self.last_water_change = dt_util.utcnow()
+        self.last_water_change_listeners._notify()
+
+    @callback
+    def async_shutdown(self) -> None:
+        self.feed.async_shutdown()
+        self.water.async_shutdown()
+        if self.power:
+            self.power.async_shutdown()
+
+
+class FeedController(_Notifier):
+    """Feed mode: wavemakers pause, return pump speed drops, skimmer pauses
+    longer. Mirrors reef_feed_mode.yaml exactly:
+
+    - start: save pump speeds -> wavemakers+skimmer off -> speeds to feed
+      value -> wavemakers resume at T+duration, skimmer (+speed restore) at
+      T+duration+extra.
+    - cancel early: wavemakers + speeds restore NOW, but the skimmer is
+      re-timed for a full extra-buffer from the moment of cancellation —
+      never turned straight back on.
+    """
+
+    def __init__(self, tank: TankData) -> None:
+        super().__init__()
+        self.tank = tank
+        self.stage = FEED_IDLE
+        self.wavemakers_resume_at: datetime | None = None
+        self.skimmer_resume_at: datetime | None = None
+        self.saved_speeds: dict[str, float] = {}
+        self._unsub_wavemakers: Callable[[], None] | None = None
+        self._unsub_skimmer: Callable[[], None] | None = None
+
+    async def async_start(self, minutes: float) -> None:
+        if self.stage != FEED_IDLE:
+            return
+        tank = self.tank
+        extra = tank.values[VALUE_SKIMMER_EXTRA_OFF]
+        now = dt_util.utcnow()
+
+        # Save current pump speeds so they can be restored later
+        self.saved_speeds = {}
+        for entity_id in tank.option_entities(CONF_PUMP_SPEED_CONTROLS):
+            state = tank.hass.states.get(entity_id)
+            if state is not None and state.state not in ("unknown", "unavailable"):
+                try:
+                    self.saved_speeds[entity_id] = float(state.state)
+                except ValueError:
+                    continue
+
+        await tank.async_turn("turn_off", tank.option_entities(CONF_WAVEMAKERS))
+        await tank.async_turn("turn_off", tank.option_entities(CONF_SKIMMERS))
+        feed_speed = tank.values[VALUE_RETURN_PUMP_FEED_SPEED]
+        for entity_id in self.saved_speeds:
+            await tank.async_set_speed(entity_id, feed_speed)
+
+        self.stage = FEED_FEEDING
+        self.wavemakers_resume_at = now + timedelta(minutes=minutes)
+        self.skimmer_resume_at = now + timedelta(minutes=minutes + extra)
+        self._schedule()
+        self._notify()
+
+    async def async_cancel(self) -> None:
+        """Stop Feeding pressed: restore wavemakers + speeds immediately,
+        skimmer still waits a full buffer re-timed from now."""
+        if self.stage == FEED_IDLE:
+            return
+        tank = self.tank
+        self._cancel_timers()
+        await tank.async_turn("turn_on", tank.option_entities(CONF_WAVEMAKERS))
+        await self._async_restore_speeds()
+        self.stage = FEED_SETTLING
+        self.wavemakers_resume_at = None
+        self.skimmer_resume_at = dt_util.utcnow() + timedelta(
+            minutes=tank.values[VALUE_SKIMMER_EXTRA_OFF]
+        )
+        self._schedule()
+        self._notify()
+
+    async def _async_wavemakers_done(self, _now: datetime) -> None:
+        self._unsub_wavemakers = None
+        await self.tank.async_turn("turn_on", self.tank.option_entities(CONF_WAVEMAKERS))
+        self.stage = FEED_SETTLING
+        self.wavemakers_resume_at = None
+        self._notify()
+
+    async def _async_skimmer_done(self, _now: datetime) -> None:
+        self._unsub_skimmer = None
+        await self.tank.async_turn("turn_on", self.tank.option_entities(CONF_SKIMMERS))
+        await self._async_restore_speeds()
+        self.stage = FEED_IDLE
+        self.wavemakers_resume_at = None
+        self.skimmer_resume_at = None
+        self._notify()
+
+    async def _async_restore_speeds(self) -> None:
+        for entity_id, value in self.saved_speeds.items():
+            await self.tank.async_set_speed(entity_id, value)
+        self.saved_speeds = {}
+
+    def _schedule(self) -> None:
+        self._cancel_timers()
+        if self.wavemakers_resume_at is not None:
+            self._unsub_wavemakers = async_track_point_in_time(
+                self.tank.hass, self._async_wavemakers_done, self.wavemakers_resume_at
+            )
+        if self.skimmer_resume_at is not None:
+            self._unsub_skimmer = async_track_point_in_time(
+                self.tank.hass, self._async_skimmer_done, self.skimmer_resume_at
+            )
+
+    def _cancel_timers(self) -> None:
+        if self._unsub_wavemakers:
+            self._unsub_wavemakers()
+            self._unsub_wavemakers = None
+        if self._unsub_skimmer:
+            self._unsub_skimmer()
+            self._unsub_skimmer = None
+
+    async def async_restore(
+        self,
+        stage: str,
+        wavemakers_resume_at: datetime | None,
+        skimmer_resume_at: datetime | None,
+        saved_speeds: dict[str, float],
+    ) -> None:
+        """Rebuild an in-flight sequence after HA restart/reload: overdue
+        actions run immediately, future ones are rescheduled. This is a
+        capability the blueprint flavor doesn't have (its `delay:` steps die
+        with a restart)."""
+        if stage == FEED_IDLE:
+            return
+        self.saved_speeds = dict(saved_speeds)
+        now = dt_util.utcnow()
+
+        if stage == FEED_FEEDING and wavemakers_resume_at is not None:
+            if wavemakers_resume_at <= now:
+                await self.tank.async_turn(
+                    "turn_on", self.tank.option_entities(CONF_WAVEMAKERS)
+                )
+                stage = FEED_SETTLING
+                wavemakers_resume_at = None
+            else:
+                self.stage = FEED_FEEDING
+                self.wavemakers_resume_at = wavemakers_resume_at
+                self.skimmer_resume_at = skimmer_resume_at
+                self._schedule()
+                self._notify()
+                return
+
+        if stage == FEED_SETTLING:
+            if skimmer_resume_at is None or skimmer_resume_at <= now:
+                await self.tank.async_turn(
+                    "turn_on", self.tank.option_entities(CONF_SKIMMERS)
+                )
+                await self._async_restore_speeds()
+                self.stage = FEED_IDLE
+            else:
+                self.stage = FEED_SETTLING
+                self.skimmer_resume_at = skimmer_resume_at
+                self._schedule()
+            self._notify()
+
+    @callback
+    def async_shutdown(self) -> None:
+        self._cancel_timers()
+
+
+class WaterChangeController(_Notifier):
+    """Water change: instant pause of all three device groups; resume runs
+    the staged restart (pumps now -> wavemakers +delay1 -> skimmer +delay2).
+    Mirrors reef_water_change_mode.yaml, including the safety timeout that
+    force-runs the restart if a pause is left on too long."""
+
+    def __init__(self, tank: TankData) -> None:
+        super().__init__()
+        self.tank = tank
+        self.stage = WC_IDLE
+        self.wavemakers_restart_at: datetime | None = None
+        self.skimmer_restart_at: datetime | None = None
+        self.safety_at: datetime | None = None
+        self._unsub_wavemakers: Callable[[], None] | None = None
+        self._unsub_skimmer: Callable[[], None] | None = None
+        self._unsub_safety: Callable[[], None] | None = None
+
+    async def async_pause(self) -> None:
+        if self.stage != WC_IDLE:
+            return
+        tank = self.tank
+        await tank.async_turn("turn_off", tank.option_entities(CONF_RETURN_PUMPS))
+        await tank.async_turn("turn_off", tank.option_entities(CONF_WAVEMAKERS))
+        await tank.async_turn("turn_off", tank.option_entities(CONF_SKIMMERS))
+        self.stage = WC_PAUSED
+        self.safety_at = dt_util.utcnow() + timedelta(hours=SAFETY_TIMEOUT_HOURS)
+        self._schedule()
+        self._notify()
+
+    async def async_resume(self) -> None:
+        if self.stage != WC_PAUSED:
+            return
+        tank = self.tank
+        self._cancel_timers()
+        self.safety_at = None
+
+        # Stage 1: return pump(s) restart immediately
+        await tank.async_turn("turn_on", tank.option_entities(CONF_RETURN_PUMPS))
+        now = dt_util.utcnow()
+        delay1 = tank.values[VALUE_WAVEMAKER_RESTART_DELAY]
+        delay2 = tank.values[VALUE_SKIMMER_RESTART_DELAY]
+        self.stage = WC_RESTARTING_WAVEMAKERS
+        self.wavemakers_restart_at = now + timedelta(minutes=delay1)
+        self.skimmer_restart_at = now + timedelta(minutes=delay1 + delay2)
+        self._schedule()
+        self._notify()
+
+    async def _async_wavemakers_restart(self, _now: datetime) -> None:
+        self._unsub_wavemakers = None
+        await self.tank.async_turn("turn_on", self.tank.option_entities(CONF_WAVEMAKERS))
+        self.stage = WC_RESTARTING_SKIMMER
+        self.wavemakers_restart_at = None
+        self._notify()
+
+    async def _async_skimmer_restart(self, _now: datetime) -> None:
+        self._unsub_skimmer = None
+        await self.tank.async_turn("turn_on", self.tank.option_entities(CONF_SKIMMERS))
+        self.stage = WC_IDLE
+        self.skimmer_restart_at = None
+        self._notify()
+
+    async def _async_safety_fired(self, _now: datetime) -> None:
+        """Pause left on too long — force the same staged restart."""
+        self._unsub_safety = None
+        self.safety_at = None
+        await self.async_resume()
+
+    def _schedule(self) -> None:
+        self._cancel_timers()
+        if self.wavemakers_restart_at is not None:
+            self._unsub_wavemakers = async_track_point_in_time(
+                self.tank.hass, self._async_wavemakers_restart, self.wavemakers_restart_at
+            )
+        if self.skimmer_restart_at is not None:
+            self._unsub_skimmer = async_track_point_in_time(
+                self.tank.hass, self._async_skimmer_restart, self.skimmer_restart_at
+            )
+        if self.safety_at is not None:
+            self._unsub_safety = async_track_point_in_time(
+                self.tank.hass, self._async_safety_fired, self.safety_at
+            )
+
+    def _cancel_timers(self) -> None:
+        for attr in ("_unsub_wavemakers", "_unsub_skimmer", "_unsub_safety"):
+            unsub = getattr(self, attr)
+            if unsub:
+                unsub()
+                setattr(self, attr, None)
+
+    async def async_restore(
+        self,
+        stage: str,
+        wavemakers_restart_at: datetime | None,
+        skimmer_restart_at: datetime | None,
+        safety_at: datetime | None,
+    ) -> None:
+        if stage == WC_IDLE:
+            return
+        now = dt_util.utcnow()
+
+        if stage == WC_PAUSED:
+            self.stage = WC_PAUSED
+            self.safety_at = safety_at
+            if safety_at is not None and safety_at <= now:
+                await self.async_resume()
+            else:
+                self._schedule()
+                self._notify()
+            return
+
+        if stage == WC_RESTARTING_WAVEMAKERS and wavemakers_restart_at is not None:
+            if wavemakers_restart_at <= now:
+                await self.tank.async_turn(
+                    "turn_on", self.tank.option_entities(CONF_WAVEMAKERS)
+                )
+                stage = WC_RESTARTING_SKIMMER
+                wavemakers_restart_at = None
+            else:
+                self.stage = stage
+                self.wavemakers_restart_at = wavemakers_restart_at
+                self.skimmer_restart_at = skimmer_restart_at
+                self._schedule()
+                self._notify()
+                return
+
+        if stage == WC_RESTARTING_SKIMMER:
+            if skimmer_restart_at is None or skimmer_restart_at <= now:
+                await self.tank.async_turn(
+                    "turn_on", self.tank.option_entities(CONF_SKIMMERS)
+                )
+                self.stage = WC_IDLE
+            else:
+                self.stage = stage
+                self.skimmer_restart_at = skimmer_restart_at
+                self._schedule()
+            self._notify()
+
+    @callback
+    def async_shutdown(self) -> None:
+        self._cancel_timers()
+
+
+class PowerLossController:
+    """Optional: when the configured mains/UPS power sensor flips back on,
+    delay the skimmer's restart so it doesn't foam over from a sudden
+    restart. Mirrors reef_skimmer_power_delay.yaml (mode: restart — a new
+    power event re-times a pending restart)."""
+
+    def __init__(self, tank: TankData) -> None:
+        self.tank = tank
+        self._unsub_listener: Callable[[], None] | None = None
+        self._unsub_timer: Callable[[], None] | None = None
+
+    @callback
+    def async_setup(self) -> None:
+        sensor = self.tank.entry.options.get(CONF_POWER_SENSOR)
+        if not sensor:
+            return
+        self._unsub_listener = async_track_state_change_event(
+            self.tank.hass, [sensor], self._async_power_changed
+        )
+
+    async def _async_power_changed(self, event: Any) -> None:
+        new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
+        if new_state is None or new_state.state != "on":
+            return
+        if old_state is not None and old_state.state == "on":
+            return
+        # Power restored: (re-)schedule the delayed skimmer restart
+        if self._unsub_timer:
+            self._unsub_timer()
+        restart_at = dt_util.utcnow() + timedelta(
+            minutes=self.tank.values[VALUE_POWER_LOSS_DELAY]
+        )
+        self._unsub_timer = async_track_point_in_time(
+            self.tank.hass, self._async_restart_skimmer, restart_at
+        )
+
+    async def _async_restart_skimmer(self, _now: datetime) -> None:
+        self._unsub_timer = None
+        await self.tank.async_turn("turn_on", self.tank.option_entities(CONF_SKIMMERS))
+
+    @callback
+    def async_shutdown(self) -> None:
+        if self._unsub_listener:
+            self._unsub_listener()
+            self._unsub_listener = None
+        if self._unsub_timer:
+            self._unsub_timer()
+            self._unsub_timer = None

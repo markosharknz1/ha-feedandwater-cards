@@ -1,4 +1,9 @@
-# Prerequisites
+# Prerequisites (manual YAML flavor)
+
+> Installing via the [HACS integration](INTEGRATION.md) instead? You can
+> skip most of this — no Python, no YAML file access, no manual helpers.
+> You only need HACS itself, devices exposed as standard entities (third
+> bullet below), and a dashboard you can edit.
 
 - **A running Home Assistant instance** with either file access to edit
   `configuration.yaml` (add-on/HAOS file editor, Samba, SSH, etc.) or

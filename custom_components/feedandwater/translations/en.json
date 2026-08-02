@@ -1,0 +1,74 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "New tank",
+        "description": "The slug becomes the entity_id prefix (e.g. `reef` gives `button.reef_start_feed`). Lowercase letters, digits, and underscores only, starting with a letter.",
+        "data": {
+          "name": "Tank name",
+          "slug": "Slug (entity_id prefix)"
+        }
+      },
+      "hardware": {
+        "title": "Tank hardware",
+        "description": "Pick the entities for this tank's equipment. Any brand works as long as the device shows up as a switch or fan entity. Return pump speed controls and the power sensor are optional.",
+        "data": {
+          "wavemakers": "Wavemaker(s)",
+          "skimmers": "Skimmer(s)",
+          "return_pumps": "Return pump(s)",
+          "pump_speed_controls": "Return pump speed control(s) (optional, number entities)",
+          "power_sensor": "Mains/UPS power sensor (optional, enables power-loss skimmer delay)"
+        }
+      }
+    },
+    "error": {
+      "invalid_slug": "Slug must be lowercase letters/digits/underscores, starting with a letter."
+    },
+    "abort": {
+      "already_configured": "A tank with this slug already exists."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Rewire tank hardware",
+        "description": "Change which entities this tank's automations control — e.g. swap demo entities for real hardware. Settings sliders and history are kept.",
+        "data": {
+          "wavemakers": "Wavemaker(s)",
+          "skimmers": "Skimmer(s)",
+          "return_pumps": "Return pump(s)",
+          "pump_speed_controls": "Return pump speed control(s) (optional, number entities)",
+          "power_sensor": "Mains/UPS power sensor (optional, enables power-loss skimmer delay)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "feed_duration": {"name": "Feed duration"},
+      "return_pump_feed_speed": {"name": "Return pump feed speed"},
+      "skimmer_extra_off": {"name": "Skimmer extra off time"},
+      "wavemaker_restart_delay": {"name": "Wavemaker restart delay"},
+      "skimmer_restart_delay": {"name": "Skimmer restart delay"},
+      "power_loss_delay": {"name": "Power-loss restart delay"},
+      "last_water_change_volume": {"name": "Last water change volume"}
+    },
+    "button": {
+      "start_feed": {"name": "Start feed"},
+      "feed_until_stop": {"name": "Feed until I stop"},
+      "stop_feed": {"name": "Stop feeding"},
+      "start_water_change": {"name": "Start water change"},
+      "resume_water_change": {"name": "Resume water change"},
+      "log_water_change": {"name": "Log water change"}
+    },
+    "sensor": {
+      "feed_stage": {"name": "Feed stage"},
+      "water_change_stage": {"name": "Water change stage"},
+      "last_water_change": {"name": "Last water change"},
+      "device_off_durations": {"name": "Devices off"}
+    },
+    "text": {
+      "tracked_devices": {"name": "Tracked devices"}
+    }
+  }
+}

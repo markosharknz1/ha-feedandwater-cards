@@ -8,7 +8,21 @@ they run — Tapo, Jebao, Shelly, Red Sea, native Zigbee, whatever — as long
 as the device shows up in Home Assistant as a `switch` or `fan` entity
 (which nearly everything does, one way or another).
 
-## Quick start
+## Two ways to install
+
+**1. HACS integration (recommended)** — add this repo to HACS as an
+Integration, then Settings > Devices & Services > Add Integration >
+"Reef Feed & Water". One form per tank: name it, pick your wavemaker/
+skimmer/pump entities, done — every helper, automation behavior, and
+sensor is created for you, and in-flight feed/water-change sequences even
+survive HA restarts. Full walkthrough + dashboard card snippets:
+**[docs/INTEGRATION.md](docs/INTEGRATION.md)**.
+
+**2. Manual YAML** — the original flavor: transparent, hand-editable
+helpers + blueprints + card YAML you paste in yourself. Some HA folks
+prefer owning every line. Steps below.
+
+## Quick start (manual YAML flavor)
 
 1. Check [Prerequisites](docs/PREREQUISITES.md) — what you need before
    you start.
@@ -34,7 +48,8 @@ whatever hardware you already have.
 
 | Guide | What's in it |
 |---|---|
-| [Prerequisites](docs/PREREQUISITES.md) | What you need before installing |
+| [Integration install](docs/INTEGRATION.md) | HACS install, config flow, card snippets — the recommended path |
+| [Prerequisites](docs/PREREQUISITES.md) | What you need before installing (YAML flavor) |
 | [Installation](docs/INSTALL.md) | Adding a tank, per-tank install steps, one-click blueprint import |
 | [Feed Mode](docs/FEED_MODE.md) | Wavemakers + return pump speed + skimmer, one sequence |
 | [Water Change Mode](docs/WATER_CHANGE.md) | Staged restart with adjustable delays |
@@ -46,7 +61,8 @@ whatever hardware you already have.
 
 ```
 reef-ha-cards/
-├── blueprints/automation/     shared automation logic — one set, reused by every tank
+├── custom_components/feedandwater/   the HACS integration (recommended install)
+├── blueprints/automation/     shared automation logic — one set, reused by every tank (YAML flavor)
 ├── templates/                 source templates the generator stamps out per tank
 ├── docs/                      full documentation (see table above)
 ├── generate_tank.py           run this once per tank
