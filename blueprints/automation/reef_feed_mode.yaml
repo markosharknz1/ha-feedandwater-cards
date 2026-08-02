@@ -9,7 +9,7 @@ blueprint:
     foam production settles before it restarts. Both durations are driven
     by input_number sliders on the dashboard, no editing required.
   domain: automation
-  source_url: reef-ha-cards/blueprints/automation/reef_feed_mode.yaml
+  source_url: https://github.com/markosharknz1/ha-feedandwater-cards/blob/main/blueprints/automation/reef_feed_mode.yaml
   input:
     feed_mode_toggle:
       name: Feed Mode Toggle

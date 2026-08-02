@@ -1,0 +1,28 @@
+# ============================================================================
+# MULTI-DEVICE OFF-DURATION DASHBOARD — Main Display Tank — Mushroom Enhanced
+# ============================================================================
+
+type: vertical-stack
+cards:
+  - type: custom:mushroom-title-card
+    title: "Main Display Tank — Tracked Devices"
+    subtitle: >
+      {{ states('sensor.reef_device_off_durations') }} currently off
+
+  - type: custom:mushroom-entity-card
+    entity: input_text.reef_tracked_devices
+    name: Devices to Track
+    icon: mdi:format-list-bulleted
+    tap_action:
+      action: more-info
+
+  - type: markdown
+    content: >
+      {% set devices = state_attr('sensor.reef_device_off_durations', 'devices') %}
+      {% if not devices %}
+      _No devices being tracked yet — add entity_ids above._
+      {% else %}
+      {% for d in devices %}
+      {{ '🔴' if d.state == 'off' else '🟢' }} **{{ d.name }}**{{ ' — off ' ~ d.off_minutes ~ ' min' if d.state == 'off' else '' }}
+      {% endfor %}
+      {% endif %}

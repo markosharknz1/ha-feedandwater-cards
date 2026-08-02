@@ -11,7 +11,7 @@ blueprint:
     without editing the automation. Includes a safety timer that forces
     the same staged restart if you forget to end water change mode.
   domain: automation
-  source_url: reef-ha-cards/blueprints/automation/reef_water_change_mode.yaml
+  source_url: https://github.com/markosharknz1/ha-feedandwater-cards/blob/main/blueprints/automation/reef_water_change_mode.yaml
   input:
     water_change_toggle:
       name: Water Change Mode Toggle

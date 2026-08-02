@@ -1,0 +1,55 @@
+type: vertical-stack
+cards:
+  - type: custom:mushroom-title-card
+    title: "Main Display Tank — Feed Mode"
+    subtitle: Wavemakers, return pump speed & skimmer
+
+  - type: custom:mushroom-entity-card
+    entity: input_boolean.reef_feed_mode
+    name: Feed Time
+    icon: mdi:food-drumstick
+    icon_color: >
+      {% if is_state('input_boolean.reef_feed_mode', 'on') %}orange{% else %}grey{% endif %}
+    tap_action:
+      action: toggle
+
+  - type: custom:mushroom-template-card
+    primary: >
+      {% if is_state('input_boolean.reef_feed_mode', 'off')
+         and not is_state('timer.reef_feed_mode', 'active')
+         and not is_state('timer.reef_feed_skimmer_off', 'active') %}
+        All equipment running normally
+      {% elif is_state('timer.reef_feed_mode', 'active') %}
+        Feeding — wavemakers resume {{ relative_time(as_datetime(state_attr('timer.reef_feed_mode','finishes_at'))) }}
+      {% elif is_state('timer.reef_feed_skimmer_off', 'active') %}
+        Settling — skimmer resumes {{ relative_time(as_datetime(state_attr('timer.reef_feed_skimmer_off','finishes_at'))) }}
+      {% else %}
+        Feed mode starting…
+      {% endif %}
+    secondary: >
+      {% if is_state('timer.reef_feed_mode', 'active') %}
+        Return pump at {{ states('input_number.reef_feed_return_pump_percent') }}% · skimmer paused
+      {% endif %}
+    icon: mdi:food-drumstick
+    icon_color: >
+      {% if is_state('timer.reef_feed_mode', 'active') %}blue
+      {% elif is_state('timer.reef_feed_skimmer_off', 'active') %}orange
+      {% else %}green{% endif %}
+
+  - type: custom:mushroom-number-card
+    entity: input_number.reef_feed_duration_minutes
+    name: Feed Duration
+    display_mode: slider
+    icon: mdi:timer-outline
+
+  - type: custom:mushroom-number-card
+    entity: input_number.reef_feed_return_pump_percent
+    name: Return Pump Feed Speed
+    display_mode: slider
+    icon: mdi:speedometer-slow
+
+  - type: custom:mushroom-number-card
+    entity: input_number.reef_feed_skimmer_extra_minutes
+    name: Skimmer Extra Off Time
+    display_mode: slider
+    icon: mdi:timer-plus-outline

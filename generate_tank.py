@@ -70,10 +70,10 @@ def main():
         if not tmpl_path.exists():
             print(f"  (skipping missing template: {tmpl_name})")
             continue
-        content = tmpl_path.read_text()
+        content = tmpl_path.read_text(encoding="utf-8")
         content = content.replace("{{SLUG}}", slug).replace("{{TITLE}}", title)
         out_path = out_dir / out_name
-        out_path.write_text(content)
+        out_path.write_text(content, encoding="utf-8")
         print(f"  wrote {out_path.relative_to(ROOT)}")
 
     print(f"\nDone. Tank '{title}' generated under tanks/{slug}/")

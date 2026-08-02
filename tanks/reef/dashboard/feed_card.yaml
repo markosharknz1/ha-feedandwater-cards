@@ -1,0 +1,53 @@
+type: vertical-stack
+cards:
+  - type: entities
+    title: "Main Display Tank — Feed Mode"
+    show_header_toggle: false
+    entities:
+      - entity: input_boolean.reef_feed_mode
+        name: Feed Time
+        icon: mdi:food-drumstick
+
+      - type: divider
+
+      - entity: input_number.reef_feed_duration_minutes
+        name: Feed Duration (wavemakers off)
+
+      - entity: input_number.reef_feed_return_pump_percent
+        name: Return Pump Feed Speed
+
+      - entity: input_number.reef_feed_skimmer_extra_minutes
+        name: Skimmer Extra Off Time (after feed)
+
+      - type: divider
+
+      - entity: timer.reef_feed_mode
+        name: Wavemakers Resume In
+
+      - entity: timer.reef_feed_skimmer_off
+        name: Skimmer Resumes In
+
+  # Stage indicator
+  - type: markdown
+    content: >
+      {% if is_state('input_boolean.reef_feed_mode', 'off')
+         and not is_state('timer.reef_feed_mode', 'active')
+         and not is_state('timer.reef_feed_skimmer_off', 'active') %}
+      🟢 **All equipment running normally**
+      {% elif is_state('timer.reef_feed_mode', 'active') %}
+      🔵 **Feeding** — wavemakers off, return pump reduced, skimmer off. Wavemakers resume {{ relative_time(as_datetime(state_attr('timer.reef_feed_mode','finishes_at'))) }}
+      {% elif is_state('timer.reef_feed_skimmer_off', 'active') %}
+      🟡 **Settling** — wavemakers and return pump back to normal, skimmer still paused. Skimmer resumes {{ relative_time(as_datetime(state_attr('timer.reef_feed_skimmer_off','finishes_at'))) }}
+      {% else %}
+      🔵 **Feed mode starting…**
+      {% endif %}
+
+  - type: button
+    name: Feed Time
+    icon: mdi:food-drumstick
+    tap_action:
+      action: call-service
+      service: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.reef_feed_mode
+    confirmation: false
