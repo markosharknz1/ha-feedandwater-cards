@@ -55,10 +55,50 @@ in-flight sequence is recovered on startup (overdue steps run immediately,
 future ones are rescheduled), which the blueprint flavor's `delay:` steps
 can't do.
 
-## Dashboard cards
+## Dashboard: the bundled card (recommended)
 
-Same compact multi-tank design as the YAML flavor. Replace `<slug>` and
-the title, paste into a Lovelace view:
+The integration ships its own Lovelace card — no YAML, no placeholders,
+no manual resource registration. Add a card to any dashboard view, search
+for **Reef Feed & Water**, done:
+
+```yaml
+type: custom:feedandwater-card
+```
+
+That's the entire config. The card discovers every tank automatically and
+renders each as one compact row: status dot, tank name, live countdown,
+and contextual action chips (Feed / Until I Stop / Water Change when
+idle; Stop Feeding or Resume while active). The ⚙ on each row opens a
+collapsed settings drawer with the duration/speed/delay sliders and the
+water-change log — keeping the main face compact even with 5-10 tanks
+stacked on one shop-floor screen.
+
+Optional config, and a visual editor provides both as form fields:
+
+```yaml
+type: custom:feedandwater-card
+title: Fish Room        # heading above the tank rows
+tanks: [reef, frag]     # limit to specific tank slugs (default: all tanks)
+```
+
+**YAML-mode dashboards only** (`lovelace: mode: yaml` in
+configuration.yaml — if you don't know what that is, you're not using
+it): the automatic resource registration can't reach YAML-mode resource
+lists, so declare it yourself:
+
+```yaml
+lovelace:
+  mode: yaml
+  resources:
+    - url: /feedandwater/feedandwater-card.js
+      type: module
+```
+
+## Dashboard: stock-card snippets (alternative)
+
+If you'd rather compose from stock HA cards (more customizable, more
+work), the same compact design as plain YAML. Replace `<slug>` and the
+title, paste into a Lovelace view:
 
 ```yaml
 type: vertical-stack

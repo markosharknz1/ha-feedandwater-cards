@@ -3,10 +3,11 @@
   "name": "Reef Feed & Water",
   "codeowners": ["@markosharknz1"],
   "config_flow": true,
+  "dependencies": ["http", "frontend"],
   "documentation": "https://github.com/markosharknz1/ha-feedandwater-cards",
   "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/markosharknz1/ha-feedandwater-cards/issues",
   "requirements": [],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }
