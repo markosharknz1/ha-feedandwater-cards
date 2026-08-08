@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Reef Feed & Water — original mark for this project.
+       Flat shapes only, designed to stay legible at 24px (HACS list size):
+       falling feed pellets above the waterline, fish below it. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22b8cf"/>
+      <stop offset="1" stop-color="#1864ab"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- water: translucent band with a wave crest -->
+  <path d="M0 232
+           Q 43 208 86 232 T 172 232 T 258 232 T 344 232 T 430 232 T 516 232
+           L 516 512 L 0 512 Z"
+        fill="#ffffff" opacity="0.16"/>
+  <path d="M0 252
+           Q 43 228 86 252 T 172 252 T 258 252 T 344 252 T 430 252 T 516 252
+           L 516 512 L 0 512 Z"
+        fill="#0b4f8a" opacity="0.35"/>
+
+  <!-- feed pellets falling toward the water -->
+  <circle cx="300" cy="118" r="17" fill="#ffffff"/>
+  <circle cx="352" cy="168" r="13" fill="#ffffff" opacity="0.9"/>
+  <circle cx="262" cy="178" r="10" fill="#ffffff" opacity="0.8"/>
+
+  <!-- fish rising to meet the food -->
+  <g fill="#ffffff">
+    <ellipse cx="225" cy="345" rx="98" ry="56"/>
+    <path d="M305 345 L395 296 L395 394 Z"/>
+    <path d="M200 289 L232 258 L252 293 Z"/>
+  </g>
+  <circle cx="168" cy="331" r="11" fill="#1864ab"/>
+</svg>

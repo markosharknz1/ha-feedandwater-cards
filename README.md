@@ -1,3 +1,5 @@
+<img src="custom_components/feedandwater/brand/logo.png" alt="Reef Feed & Water" width="180" align="right">
+
 # Reef Tank Home Assistant Dashboard Pack
 
 Vendor-agnostic Home Assistant cards + automations for common reef tank
