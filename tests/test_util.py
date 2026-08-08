@@ -7,20 +7,28 @@ side effects).
 """
 from __future__ import annotations
 
-import sys
+import importlib.util
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT))
-
-from custom_components.feedandwater.util import (  # noqa: E402
-    compute_off_durations,
-    parse_tracked_devices,
-    valid_slug,
+# Load util.py directly by file path rather than importing the package —
+# the package __init__ imports homeassistant, which deliberately isn't
+# installed in CI (plain pytest, no HA test harness).
+_UTIL_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "custom_components"
+    / "feedandwater"
+    / "util.py"
 )
+_spec = importlib.util.spec_from_file_location("fw_util", _UTIL_PATH)
+_util = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_util)
+
+compute_off_durations = _util.compute_off_durations
+parse_tracked_devices = _util.parse_tracked_devices
+valid_slug = _util.valid_slug
 
 
 def test_valid_slugs() -> None:
