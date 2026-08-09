@@ -113,9 +113,33 @@ class TankData:
         )
 
     async def async_set_speed(self, entity_id: str, value: float) -> None:
+        """Set a speed control: number entities get a raw set_value; fan
+        entities (pumps whose integration merges power+speed, e.g. newer
+        Jebao builds) get their percentage set."""
+        if entity_id.startswith("fan."):
+            await self.hass.services.async_call(
+                "fan",
+                "set_percentage",
+                {"entity_id": entity_id, "percentage": int(round(value))},
+                blocking=True,
+            )
+            return
         await self.hass.services.async_call(
             "number", "set_value", {"entity_id": entity_id, "value": value}, blocking=True
         )
+
+    def read_speed(self, entity_id: str) -> float | None:
+        """Current value of a speed control, or None if unreadable."""
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        if entity_id.startswith("fan."):
+            pct = state.attributes.get("percentage")
+            return float(pct) if pct is not None else None
+        try:
+            return float(state.state)
+        except ValueError:
+            return None
 
     @callback
     def async_log_water_change(self) -> None:
@@ -162,12 +186,9 @@ class FeedController(_Notifier):
         # Save current pump speeds so they can be restored later
         self.saved_speeds = {}
         for entity_id in tank.option_entities(CONF_PUMP_SPEED_CONTROLS):
-            state = tank.hass.states.get(entity_id)
-            if state is not None and state.state not in ("unknown", "unavailable"):
-                try:
-                    self.saved_speeds[entity_id] = float(state.state)
-                except ValueError:
-                    continue
+            value = tank.read_speed(entity_id)
+            if value is not None:
+                self.saved_speeds[entity_id] = value
 
         await tank.async_turn("turn_off", tank.option_entities(CONF_WAVEMAKERS))
         await tank.async_turn("turn_off", tank.option_entities(CONF_SKIMMERS))

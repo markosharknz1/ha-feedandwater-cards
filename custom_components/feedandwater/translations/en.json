@@ -27,7 +27,7 @@
           "wavemakers": "Paused during feeding and water changes.",
           "skimmers": "Paused during feeding (with an extra settling buffer) and water changes.",
           "return_pumps": "Paused during water changes; restarted first.",
-          "pump_speed_controls": "Optional. If your return pump has variable speed shown as a number entity, pick it here — feed mode will lower the speed and restore it automatically.",
+          "pump_speed_controls": "Optional. If your return pump's speed is adjustable in Home Assistant, pick the control here — a number entity, or the pump's fan entity if power and speed are combined. Feed mode lowers the speed and restores it automatically.",
           "power_sensor": "Optional. A sensor that shows when mains/UPS power is on — enables a delayed skimmer restart after a power cut, so it doesn't foam over."
         }
       }
@@ -55,7 +55,7 @@
           "wavemakers": "Paused during feeding and water changes.",
           "skimmers": "Paused during feeding (with an extra settling buffer) and water changes.",
           "return_pumps": "Paused during water changes; restarted first.",
-          "pump_speed_controls": "Optional. If your return pump has variable speed shown as a number entity, pick it here — feed mode will lower the speed and restore it automatically.",
+          "pump_speed_controls": "Optional. If your return pump's speed is adjustable in Home Assistant, pick the control here — a number entity, or the pump's fan entity if power and speed are combined. Feed mode lowers the speed and restores it automatically.",
           "power_sensor": "Optional. A sensor that shows when mains/UPS power is on — enables a delayed skimmer restart after a power cut, so it doesn't foam over."
         }
       }
@@ -63,30 +63,66 @@
   },
   "entity": {
     "number": {
-      "feed_duration": {"name": "Feed duration"},
-      "return_pump_feed_speed": {"name": "Return pump feed speed"},
-      "skimmer_extra_off": {"name": "Skimmer extra off time"},
-      "wavemaker_restart_delay": {"name": "Wavemaker restart delay"},
-      "skimmer_restart_delay": {"name": "Skimmer restart delay"},
-      "power_loss_delay": {"name": "Power-loss restart delay"},
-      "last_water_change_volume": {"name": "Last water change volume"}
+      "feed_duration": {
+        "name": "Feed duration"
+      },
+      "return_pump_feed_speed": {
+        "name": "Return pump feed speed"
+      },
+      "skimmer_extra_off": {
+        "name": "Skimmer extra off time"
+      },
+      "wavemaker_restart_delay": {
+        "name": "Wavemaker restart delay"
+      },
+      "skimmer_restart_delay": {
+        "name": "Skimmer restart delay"
+      },
+      "power_loss_delay": {
+        "name": "Power-loss restart delay"
+      },
+      "last_water_change_volume": {
+        "name": "Last water change volume"
+      }
     },
     "button": {
-      "start_feed": {"name": "Start feed"},
-      "feed_until_stop": {"name": "Feed until I stop"},
-      "stop_feed": {"name": "Stop feeding"},
-      "start_water_change": {"name": "Start water change"},
-      "resume_water_change": {"name": "Resume water change"},
-      "log_water_change": {"name": "Log water change"}
+      "start_feed": {
+        "name": "Start feed"
+      },
+      "feed_until_stop": {
+        "name": "Feed until I stop"
+      },
+      "stop_feed": {
+        "name": "Stop feeding"
+      },
+      "start_water_change": {
+        "name": "Start water change"
+      },
+      "resume_water_change": {
+        "name": "Resume water change"
+      },
+      "log_water_change": {
+        "name": "Log water change"
+      }
     },
     "sensor": {
-      "feed_stage": {"name": "Feed stage"},
-      "water_change_stage": {"name": "Water change stage"},
-      "last_water_change": {"name": "Last water change"},
-      "device_off_durations": {"name": "Devices off"}
+      "feed_stage": {
+        "name": "Feed stage"
+      },
+      "water_change_stage": {
+        "name": "Water change stage"
+      },
+      "last_water_change": {
+        "name": "Last water change"
+      },
+      "device_off_durations": {
+        "name": "Devices off"
+      }
     },
     "text": {
-      "tracked_devices": {"name": "Tracked devices"}
+      "tracked_devices": {
+        "name": "Tracked devices"
+      }
     }
   }
 }

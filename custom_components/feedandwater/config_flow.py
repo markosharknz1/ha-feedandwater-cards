@@ -34,8 +34,11 @@ from .util import slugify_name, valid_slug
 ON_OFF_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain=["switch", "fan"], multiple=True)
 )
-NUMBER_SELECTOR = selector.EntitySelector(
-    selector.EntitySelectorConfig(domain="number", multiple=True)
+# Speed controls accept either a number entity (a raw set-point, e.g. a
+# separate Flow control) or a fan entity (pumps whose integration merges
+# power+speed into one fan — the fan's percentage is used).
+SPEED_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain=["number", "fan"], multiple=True)
 )
 POWER_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="binary_sensor")
@@ -58,7 +61,7 @@ def _hardware_schema(current: dict[str, Any]) -> vol.Schema:
         vol.Optional(
             CONF_PUMP_SPEED_CONTROLS,
             default=current.get(CONF_PUMP_SPEED_CONTROLS, []),
-        ): NUMBER_SELECTOR,
+        ): SPEED_SELECTOR,
     }
     power_current = current.get(CONF_POWER_SENSOR)
     if power_current:
