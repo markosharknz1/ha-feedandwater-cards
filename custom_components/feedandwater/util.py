@@ -16,6 +16,18 @@ def valid_slug(slug: str) -> bool:
     return bool(SLUG_PATTERN.fullmatch(slug))
 
 
+def slugify_name(name: str) -> str:
+    """Derive a valid slug from a tank name, so the config flow's prefix
+    field can be optional ("Main Display Tank" -> "main_display_tank").
+
+    Returns "" when nothing valid can be derived (e.g. all digits/symbols);
+    the caller decides how to error in that case.
+    """
+    cleaned = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    cleaned = cleaned.lstrip("0123456789_")
+    return cleaned if valid_slug(cleaned) else ""
+
+
 def parse_tracked_devices(raw: str) -> list[str]:
     """Comma-separated entity_ids -> cleaned list."""
     return [item.strip() for item in raw.split(",") if item.strip()]

@@ -3,42 +3,60 @@
     "step": {
       "user": {
         "title": "New tank",
-        "description": "The slug becomes the entity_id prefix (e.g. `reef` gives `button.reef_start_feed`). Lowercase letters, digits, and underscores only, starting with a letter.",
+        "description": "Give your tank a name. In the next step you'll pick which pumps, wavemakers, and skimmer belong to it.",
         "data": {
           "name": "Tank name",
-          "slug": "Slug (entity_id prefix)"
+          "slug": "Entity ID prefix (optional)"
+        },
+        "data_description": {
+          "name": "Shown on your dashboards — e.g. \"Main Display Tank\".",
+          "slug": "Leave blank and it's created from the tank name automatically. This short word starts every entity ID for this tank (e.g. \"reef\" gives button.reef_start_feed) so multiple tanks never clash. Lowercase letters, numbers, and underscores only, starting with a letter."
         }
       },
       "hardware": {
         "title": "Tank hardware",
-        "description": "Pick the entities for this tank's equipment. Any brand works as long as the device shows up as a switch or fan entity. Return pump speed controls and the power sensor are optional.",
+        "description": "Pick this tank's equipment. Any brand works as long as the device shows up in Home Assistant as a switch or fan. The last two fields are optional — leave them empty if they don't apply.",
         "data": {
           "wavemakers": "Wavemaker(s)",
           "skimmers": "Skimmer(s)",
           "return_pumps": "Return pump(s)",
-          "pump_speed_controls": "Return pump speed control(s) (optional, number entities)",
-          "power_sensor": "Mains/UPS power sensor (optional, enables power-loss skimmer delay)"
+          "pump_speed_controls": "Return pump speed control(s)",
+          "power_sensor": "Mains/UPS power sensor"
+        },
+        "data_description": {
+          "wavemakers": "Paused during feeding and water changes.",
+          "skimmers": "Paused during feeding (with an extra settling buffer) and water changes.",
+          "return_pumps": "Paused during water changes; restarted first.",
+          "pump_speed_controls": "Optional. If your return pump has variable speed shown as a number entity, pick it here — feed mode will lower the speed and restore it automatically.",
+          "power_sensor": "Optional. A sensor that shows when mains/UPS power is on — enables a delayed skimmer restart after a power cut, so it doesn't foam over."
         }
       }
     },
     "error": {
-      "invalid_slug": "Slug must be lowercase letters/digits/underscores, starting with a letter."
+      "invalid_slug": "Couldn't make a valid prefix from that — use lowercase letters, numbers, and underscores, starting with a letter (e.g. \"reef\" or \"frag_2\")."
     },
     "abort": {
-      "already_configured": "A tank with this slug already exists."
+      "already_configured": "A tank with this entity ID prefix already exists — pick a different prefix (or tank name)."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Rewire tank hardware",
-        "description": "Change which entities this tank's automations control — e.g. swap demo entities for real hardware. Settings sliders and history are kept.",
+        "description": "Change which devices this tank controls — e.g. swap practice/demo entities for real hardware. Your settings sliders and history are kept.",
         "data": {
           "wavemakers": "Wavemaker(s)",
           "skimmers": "Skimmer(s)",
           "return_pumps": "Return pump(s)",
-          "pump_speed_controls": "Return pump speed control(s) (optional, number entities)",
-          "power_sensor": "Mains/UPS power sensor (optional, enables power-loss skimmer delay)"
+          "pump_speed_controls": "Return pump speed control(s)",
+          "power_sensor": "Mains/UPS power sensor"
+        },
+        "data_description": {
+          "wavemakers": "Paused during feeding and water changes.",
+          "skimmers": "Paused during feeding (with an extra settling buffer) and water changes.",
+          "return_pumps": "Paused during water changes; restarted first.",
+          "pump_speed_controls": "Optional. If your return pump has variable speed shown as a number entity, pick it here — feed mode will lower the speed and restore it automatically.",
+          "power_sensor": "Optional. A sensor that shows when mains/UPS power is on — enables a delayed skimmer restart after a power cut, so it doesn't foam over."
         }
       }
     }

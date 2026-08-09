@@ -28,7 +28,18 @@ _spec.loader.exec_module(_util)
 
 compute_off_durations = _util.compute_off_durations
 parse_tracked_devices = _util.parse_tracked_devices
+slugify_name = _util.slugify_name
 valid_slug = _util.valid_slug
+
+
+def test_slugify_name() -> None:
+    assert slugify_name("Main Display Tank") == "main_display_tank"
+    assert slugify_name("Reef") == "reef"
+    assert slugify_name("Frag Tank #2") == "frag_tank_2"
+    assert slugify_name("  2-Foot MOW  ") == "foot_mow"
+    # nothing derivable -> empty string, caller shows the error
+    assert slugify_name("123") == ""
+    assert slugify_name("!!!") == ""
 
 
 def test_valid_slugs() -> None:

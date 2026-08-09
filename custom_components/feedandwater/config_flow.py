@@ -29,7 +29,7 @@ from .const import (
     CONF_WAVEMAKERS,
     DOMAIN,
 )
-from .util import valid_slug
+from .util import slugify_name, valid_slug
 
 ON_OFF_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain=["switch", "fan"], multiple=True)
@@ -82,13 +82,18 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            slug = user_input[CONF_SLUG].strip().lower()
+            name = user_input["name"].strip()
+            # Prefix is optional — derive it from the tank name when blank,
+            # so non-technical users never have to know what a slug is.
+            slug = (user_input.get(CONF_SLUG) or "").strip().lower()
+            if not slug:
+                slug = slugify_name(name)
             if not valid_slug(slug):
                 errors[CONF_SLUG] = "invalid_slug"
             else:
                 await self.async_set_unique_id(slug)
                 self._abort_if_unique_id_configured()
-                self._name = user_input["name"].strip()
+                self._name = name
                 self._slug = slug
                 return await self.async_step_hardware()
 
@@ -97,7 +102,7 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required("name"): str,
-                    vol.Required(CONF_SLUG): str,
+                    vol.Optional(CONF_SLUG): str,
                 }
             ),
             errors=errors,
