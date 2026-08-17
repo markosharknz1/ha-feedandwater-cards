@@ -47,8 +47,18 @@ entities on a single device (`<slug>` = your slug):
 | `sensor.<slug>_water_change_stage` | `idle` / `paused` / `restarting_wavemakers` / `restarting_skimmer` |
 | `sensor.<slug>_last_water_change` | Timestamp of the last logged change |
 | `sensor.<slug>_device_off_durations` | Off-duration table for the tracked-devices list |
-| `number.<slug>_feed_duration` etc. | The seven settings sliders |
+| `number.<slug>_feed_duration` etc. | The settings sliders |
 | `text.<slug>_tracked_devices` | Comma-separated entity_ids for the off-duration table |
+
+Tanks with **lights** configured (optional hardware field — e.g. stand
+lights on a smart plug) additionally get:
+
+| Entity | Purpose |
+|---|---|
+| `button.<slug>_lights_on` | Turn the light group on; auto-off after the Light timer |
+| `button.<slug>_lights_off` | Turn them off (or end a running timer early) |
+| `number.<slug>_light_timer` | Minutes until auto-off — **0 = stay on until you tap off** |
+| `sensor.<slug>_light_stage` | `off` / `on` / `on_timed` (+ the scheduled off time) |
 
 The feed and water-change sequences also **survive HA restarts** — an
 in-flight sequence is recovered on startup (overdue steps run immediately,
