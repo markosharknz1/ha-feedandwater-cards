@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 _LOGGER = logging.getLogger(__name__)
 
 CARD_URL = "/feedandwater/feedandwater-card.js"
-CARD_VERSION = "0.2.0"  # bump to bust the browser cache when the card changes
+CARD_VERSION = "0.3.0"  # bump to bust the browser cache when the card changes
 
 _CARD_REGISTERED_KEY = "feedandwater_card_registered"
 

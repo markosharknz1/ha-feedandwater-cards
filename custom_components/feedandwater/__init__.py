@@ -21,6 +21,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     tank = TankData(hass, entry)
     if tank.power:
         tank.power.async_setup()
+    if tank.lights:
+        tank.lights.async_setup()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = tank
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))

@@ -48,6 +48,21 @@ async def async_setup_entry(
         ("resume_water_change", "mdi:play-circle-outline", resume_water_change),
         ("log_water_change", "mdi:calendar-check", log_water_change),
     ]
+
+    if tank.lights is not None:
+        lights = tank.lights
+
+        async def lights_on() -> None:
+            await lights.async_turn_on()
+
+        async def lights_off() -> None:
+            await lights.async_turn_off()
+
+        buttons += [
+            ("lights_on", "mdi:lightbulb-on-outline", lights_on),
+            ("lights_off", "mdi:lightbulb-off-outline", lights_off),
+        ]
+
     async_add_entities(
         TankButton(tank, suffix, icon, action) for suffix, icon, action in buttons
     )

@@ -13,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, FEED_IDLE, WC_IDLE
+from .const import DOMAIN, FEED_IDLE, LIGHTS_OFF, WC_IDLE
 from .controllers import TankData
 from .entity import FeedAndWaterEntity
 from .util import compute_off_durations, parse_tracked_devices
@@ -22,20 +22,22 @@ ATTR_WAVEMAKERS_AT = "wavemakers_at"
 ATTR_SKIMMER_AT = "skimmer_at"
 ATTR_SAFETY_AT = "safety_at"
 ATTR_SAVED_SPEEDS = "saved_speeds"
+ATTR_OFF_AT = "off_at"
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     tank: TankData = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
-        [
-            FeedStageSensor(tank),
-            WaterChangeStageSensor(tank),
-            LastWaterChangeSensor(tank),
-            OffDurationsSensor(tank),
-        ]
-    )
+    entities: list[SensorEntity] = [
+        FeedStageSensor(tank),
+        WaterChangeStageSensor(tank),
+        LastWaterChangeSensor(tank),
+        OffDurationsSensor(tank),
+    ]
+    if tank.lights is not None:
+        entities.append(LightStageSensor(tank))
+    async_add_entities(entities)
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -143,6 +145,39 @@ class LastWaterChangeSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
         last = await self.async_get_last_state()
         if last is not None and self.tank.last_water_change is None:
             self.tank.last_water_change = _parse(last.state)
+
+
+class LightStageSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
+    """off / on / on_timed — with the scheduled auto-off time as an
+    attribute, doubling as the persistence layer so a timed light session
+    survives an HA restart (same pattern as the feed stage sensor)."""
+
+    _attr_icon = "mdi:lightbulb-outline"
+
+    def __init__(self, tank: TankData) -> None:
+        super().__init__(tank, "sensor", "light_stage")
+
+    @property
+    def native_value(self) -> str:
+        return self.tank.lights.stage if self.tank.lights else LIGHTS_OFF
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        lights = self.tank.lights
+        return {ATTR_OFF_AT: _iso(lights.off_at) if lights else None}
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if self.tank.lights is None:
+            return
+        self.async_on_remove(
+            self.tank.lights.async_add_listener(self.async_write_ha_state)
+        )
+        last = await self.async_get_last_state()
+        if last is not None and last.state not in (LIGHTS_OFF, "unknown", "unavailable"):
+            await self.tank.lights.async_restore(
+                last.state, _parse(last.attributes.get(ATTR_OFF_AT))
+            )
 
 
 class OffDurationsSensor(FeedAndWaterEntity, SensorEntity):

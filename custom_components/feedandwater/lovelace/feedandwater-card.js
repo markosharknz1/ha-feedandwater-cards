@@ -29,6 +29,7 @@ const SENSOR_SUFFIXES = [
   "water_change_stage",
   "last_water_change",
   "device_off_durations",
+  "light_stage",
 ];
 const BUTTON_SUFFIXES = [
   "start_feed",
@@ -37,6 +38,8 @@ const BUTTON_SUFFIXES = [
   "start_water_change",
   "resume_water_change",
   "log_water_change",
+  "lights_on",
+  "lights_off",
 ];
 const NUMBER_SUFFIXES = [
   "feed_duration",
@@ -46,6 +49,7 @@ const NUMBER_SUFFIXES = [
   "skimmer_restart_delay",
   "power_loss_delay",
   "last_water_change_volume",
+  "light_timer",
 ];
 const TEXT_SUFFIXES = ["tracked_devices"];
 
@@ -63,6 +67,7 @@ const SETTINGS_SLIDERS = [
   ["skimmer_extra_off", "Skimmer extra off", "min"],
   ["wavemaker_restart_delay", "Wavemaker restart delay", "min"],
   ["skimmer_restart_delay", "Skimmer restart delay", "min"],
+  ["light_timer", "Light timer (0 = until off)", "min"],
 ];
 
 // Shared by the card and its editor so "which tanks exist" is answered
@@ -159,7 +164,12 @@ class FeedAndWaterCard extends HTMLElement {
     const active = tanks.some((t) => {
       const feed = this._state(t, "feed_stage");
       const wc = this._state(t, "water_change_stage");
-      return (feed && feed.state !== "idle") || (wc && wc.state !== "idle");
+      const light = this._state(t, "light_stage");
+      return (
+        (feed && feed.state !== "idle") ||
+        (wc && wc.state !== "idle") ||
+        (light && light.state === "on_timed")
+      );
     });
     if (active && !this._timer) {
       this._timer = setInterval(() => this._render(), 1000);
@@ -244,6 +254,23 @@ class FeedAndWaterCard extends HTMLElement {
       chips.push({ label: "Water Change", icon: "💧", cls: "alt", act: "start_water_change" });
     }
     // While a staged restart runs there is deliberately nothing to tap.
+
+    // Light timer chip (only for tanks with lights configured)
+    const light = this._state(tank, "light_stage");
+    if (light) {
+      if (light.state === "off") {
+        chips.push({ label: "Lights On", icon: "💡", cls: "alt", act: "lights_on" });
+      } else {
+        const remaining =
+          light.state === "on_timed" ? fmtRemaining(light.attributes.off_at) : null;
+        chips.push({
+          label: "Lights Off" + (remaining ? " · " + remaining : ""),
+          icon: "💡",
+          cls: "alt",
+          act: "lights_off",
+        });
+      }
+    }
     return chips;
   }
 

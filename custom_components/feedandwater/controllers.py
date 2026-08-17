@@ -20,6 +20,7 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_LIGHTS,
     CONF_POWER_SENSOR,
     CONF_PUMP_SPEED_CONTROLS,
     CONF_RETURN_PUMPS,
@@ -29,8 +30,12 @@ from .const import (
     FEED_FEEDING,
     FEED_IDLE,
     FEED_SETTLING,
+    LIGHTS_OFF,
+    LIGHTS_ON,
+    LIGHTS_ON_TIMED,
     NUMBER_SPECS,
     SAFETY_TIMEOUT_HOURS,
+    VALUE_LIGHT_TIMER,
     VALUE_POWER_LOSS_DELAY,
     VALUE_RETURN_PUMP_FEED_SPEED,
     VALUE_SKIMMER_EXTRA_OFF,
@@ -86,12 +91,15 @@ class TankData:
     feed: "FeedController" = field(init=False)
     water: "WaterChangeController" = field(init=False)
     power: "PowerLossController | None" = field(init=False, default=None)
+    lights: "LightController | None" = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         self.feed = FeedController(self)
         self.water = WaterChangeController(self)
         if self.entry.options.get(CONF_POWER_SENSOR):
             self.power = PowerLossController(self)
+        if self.entry.options.get(CONF_LIGHTS):
+            self.lights = LightController(self)
 
     @property
     def slug(self) -> str:
@@ -152,6 +160,8 @@ class TankData:
         self.water.async_shutdown()
         if self.power:
             self.power.async_shutdown()
+        if self.lights:
+            self.lights.async_shutdown()
 
 
 class FeedController(_Notifier):
@@ -448,6 +458,108 @@ class WaterChangeController(_Notifier):
     @callback
     def async_shutdown(self) -> None:
         self._cancel_timers()
+
+
+class LightController(_Notifier):
+    """Tap-to-run light timer: turn the tank's light group on, optionally
+    auto-off after the "Light timer" slider's duration (0 = stay on until
+    turned off manually). Tracks the real device states too, so a light
+    toggled at the wall or in another card keeps the stage honest."""
+
+    def __init__(self, tank: TankData) -> None:
+        super().__init__()
+        self.tank = tank
+        self.stage = LIGHTS_OFF
+        self.off_at: datetime | None = None
+        self._unsub_timer: Callable[[], None] | None = None
+        self._unsub_listener: Callable[[], None] | None = None
+
+    @callback
+    def async_setup(self) -> None:
+        entities = self.tank.option_entities(CONF_LIGHTS)
+        if entities:
+            self._unsub_listener = async_track_state_change_event(
+                self.tank.hass, entities, self._async_member_changed
+            )
+
+    async def async_turn_on(self) -> None:
+        tank = self.tank
+        await tank.async_turn("turn_on", tank.option_entities(CONF_LIGHTS))
+        minutes = tank.values[VALUE_LIGHT_TIMER]
+        self._cancel_timer()
+        if minutes > 0:
+            self.stage = LIGHTS_ON_TIMED
+            self.off_at = dt_util.utcnow() + timedelta(minutes=minutes)
+            self._schedule()
+        else:
+            self.stage = LIGHTS_ON
+            self.off_at = None
+        self._notify()
+
+    async def async_turn_off(self) -> None:
+        self._cancel_timer()
+        await self.tank.async_turn("turn_off", self.tank.option_entities(CONF_LIGHTS))
+        self.stage = LIGHTS_OFF
+        self.off_at = None
+        self._notify()
+
+    async def _async_timer_fired(self, _now: datetime) -> None:
+        self._unsub_timer = None
+        await self.async_turn_off()
+
+    async def _async_member_changed(self, _event: Any) -> None:
+        """Keep the stage honest when a light is toggled outside the card
+        (wall switch, another dashboard, the plug's own button)."""
+        any_on = any(
+            (state := self.tank.hass.states.get(entity_id)) is not None
+            and state.state == "on"
+            for entity_id in self.tank.option_entities(CONF_LIGHTS)
+        )
+        if not any_on and self.stage != LIGHTS_OFF:
+            self._cancel_timer()
+            self.stage = LIGHTS_OFF
+            self.off_at = None
+            self._notify()
+        elif any_on and self.stage == LIGHTS_OFF:
+            # Turned on externally — reflect it, but don't start a timer the
+            # user never asked for.
+            self.stage = LIGHTS_ON
+            self.off_at = None
+            self._notify()
+
+    def _schedule(self) -> None:
+        self._cancel_timer()
+        if self.off_at is not None:
+            self._unsub_timer = async_track_point_in_time(
+                self.tank.hass, self._async_timer_fired, self.off_at
+            )
+
+    def _cancel_timer(self) -> None:
+        if self._unsub_timer:
+            self._unsub_timer()
+            self._unsub_timer = None
+
+    async def async_restore(self, stage: str, off_at: datetime | None) -> None:
+        if stage == LIGHTS_OFF:
+            return
+        if stage == LIGHTS_ON_TIMED and off_at is not None:
+            if off_at <= dt_util.utcnow():
+                await self.async_turn_off()
+                return
+            self.stage = LIGHTS_ON_TIMED
+            self.off_at = off_at
+            self._schedule()
+        else:
+            self.stage = LIGHTS_ON
+            self.off_at = None
+        self._notify()
+
+    @callback
+    def async_shutdown(self) -> None:
+        self._cancel_timer()
+        if self._unsub_listener:
+            self._unsub_listener()
+            self._unsub_listener = None
 
 
 class PowerLossController:

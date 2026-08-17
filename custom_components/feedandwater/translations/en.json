@@ -21,14 +21,16 @@
           "skimmers": "Skimmer(s)",
           "return_pumps": "Return pump(s)",
           "pump_speed_controls": "Return pump speed control(s)",
-          "power_sensor": "Mains/UPS power sensor"
+          "power_sensor": "Mains/UPS power sensor",
+          "lights": "Stand / tank light(s)"
         },
         "data_description": {
           "wavemakers": "Paused during feeding and water changes.",
           "skimmers": "Paused during feeding (with an extra settling buffer) and water changes.",
           "return_pumps": "Paused during water changes; restarted first.",
           "pump_speed_controls": "Optional. If your return pump's speed is adjustable in Home Assistant, pick the control here — a number entity, or the pump's fan entity if power and speed are combined. Feed mode lowers the speed and restores it automatically.",
-          "power_sensor": "Optional. A sensor that shows when mains/UPS power is on — enables a delayed skimmer restart after a power cut, so it doesn't foam over."
+          "power_sensor": "Optional. A sensor that shows when mains/UPS power is on — enables a delayed skimmer restart after a power cut, so it doesn't foam over.",
+          "lights": "Optional. Lights (or anything switchable — e.g. a Tapo plug running LED strips) you want a tap-to-run timer for. The Light timer slider sets how long they stay on; 0 keeps them on until you tap Lights off."
         }
       }
     },
@@ -49,14 +51,16 @@
           "skimmers": "Skimmer(s)",
           "return_pumps": "Return pump(s)",
           "pump_speed_controls": "Return pump speed control(s)",
-          "power_sensor": "Mains/UPS power sensor"
+          "power_sensor": "Mains/UPS power sensor",
+          "lights": "Stand / tank light(s)"
         },
         "data_description": {
           "wavemakers": "Paused during feeding and water changes.",
           "skimmers": "Paused during feeding (with an extra settling buffer) and water changes.",
           "return_pumps": "Paused during water changes; restarted first.",
           "pump_speed_controls": "Optional. If your return pump's speed is adjustable in Home Assistant, pick the control here — a number entity, or the pump's fan entity if power and speed are combined. Feed mode lowers the speed and restores it automatically.",
-          "power_sensor": "Optional. A sensor that shows when mains/UPS power is on — enables a delayed skimmer restart after a power cut, so it doesn't foam over."
+          "power_sensor": "Optional. A sensor that shows when mains/UPS power is on — enables a delayed skimmer restart after a power cut, so it doesn't foam over.",
+          "lights": "Optional. Lights (or anything switchable — e.g. a Tapo plug running LED strips) you want a tap-to-run timer for. The Light timer slider sets how long they stay on; 0 keeps them on until you tap Lights off."
         }
       }
     }
@@ -83,6 +87,9 @@
       },
       "last_water_change_volume": {
         "name": "Last water change volume"
+      },
+      "light_timer": {
+        "name": "Light timer"
       }
     },
     "button": {
@@ -103,6 +110,12 @@
       },
       "log_water_change": {
         "name": "Log water change"
+      },
+      "lights_on": {
+        "name": "Lights on"
+      },
+      "lights_off": {
+        "name": "Lights off"
       }
     },
     "sensor": {
@@ -117,6 +130,9 @@
       },
       "device_off_durations": {
         "name": "Devices off"
+      },
+      "light_stage": {
+        "name": "Lights"
       }
     },
     "text": {

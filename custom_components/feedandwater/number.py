@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, NUMBER_SPECS
+from .const import DOMAIN, NUMBER_SPECS, VALUE_LIGHT_TIMER
 from .controllers import TankData
 from .entity import FeedAndWaterEntity
 
@@ -17,7 +17,13 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     tank: TankData = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(TankNumber(tank, key) for key in NUMBER_SPECS)
+    keys = [
+        key
+        for key in NUMBER_SPECS
+        # The light timer only exists for tanks with lights configured
+        if key != VALUE_LIGHT_TIMER or tank.lights is not None
+    ]
+    async_add_entities(TankNumber(tank, key) for key in keys)
 
 
 class TankNumber(FeedAndWaterEntity, RestoreNumber):

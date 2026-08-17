@@ -21,6 +21,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_LIGHTS,
     CONF_POWER_SENSOR,
     CONF_PUMP_SPEED_CONTROLS,
     CONF_RETURN_PUMPS,
@@ -43,6 +44,9 @@ SPEED_SELECTOR = selector.EntitySelector(
 POWER_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="binary_sensor")
 )
+LIGHTS_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain=["switch", "light", "fan"], multiple=True)
+)
 
 
 def _hardware_schema(current: dict[str, Any]) -> vol.Schema:
@@ -62,6 +66,9 @@ def _hardware_schema(current: dict[str, Any]) -> vol.Schema:
             CONF_PUMP_SPEED_CONTROLS,
             default=current.get(CONF_PUMP_SPEED_CONTROLS, []),
         ): SPEED_SELECTOR,
+        vol.Optional(
+            CONF_LIGHTS, default=current.get(CONF_LIGHTS, [])
+        ): LIGHTS_SELECTOR,
     }
     power_current = current.get(CONF_POWER_SENSOR)
     if power_current:

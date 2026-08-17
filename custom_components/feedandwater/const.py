@@ -12,6 +12,7 @@ CONF_SKIMMERS = "skimmers"
 CONF_RETURN_PUMPS = "return_pumps"
 CONF_PUMP_SPEED_CONTROLS = "pump_speed_controls"
 CONF_POWER_SENSOR = "power_sensor"
+CONF_LIGHTS = "lights"
 
 # TankData.values keys — one per settings number entity
 VALUE_FEED_DURATION = "feed_duration"
@@ -21,6 +22,7 @@ VALUE_WAVEMAKER_RESTART_DELAY = "wavemaker_restart_delay"
 VALUE_SKIMMER_RESTART_DELAY = "skimmer_restart_delay"
 VALUE_POWER_LOSS_DELAY = "power_loss_delay"
 VALUE_LAST_WATER_CHANGE_VOLUME = "last_water_change_volume"
+VALUE_LIGHT_TIMER = "light_timer"
 
 # (default, min, max, step, unit) per number entity
 NUMBER_SPECS: dict[str, tuple[float, float, float, float, str]] = {
@@ -31,6 +33,8 @@ NUMBER_SPECS: dict[str, tuple[float, float, float, float, str]] = {
     VALUE_SKIMMER_RESTART_DELAY: (10, 0, 30, 1, "min"),
     VALUE_POWER_LOSS_DELAY: (5, 0, 60, 1, "min"),
     VALUE_LAST_WATER_CHANGE_VOLUME: (0, 0, 500, 1, "L"),
+    # 0 = stay on until turned off manually
+    VALUE_LIGHT_TIMER: (0, 0, 480, 5, "min"),
 }
 
 # "Until I Stop" starts a feed at the max duration rather than a true
@@ -53,3 +57,8 @@ WC_IDLE = "idle"
 WC_PAUSED = "paused"
 WC_RESTARTING_WAVEMAKERS = "restarting_wavemakers"
 WC_RESTARTING_SKIMMER = "restarting_skimmer"
+
+# Light stages
+LIGHTS_OFF = "off"
+LIGHTS_ON = "on"          # on until turned off manually (timer 0)
+LIGHTS_ON_TIMED = "on_timed"  # on with a scheduled auto-off
