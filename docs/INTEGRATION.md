@@ -65,31 +65,36 @@ in-flight sequence is recovered on startup (overdue steps run immediately,
 future ones are rescheduled), which the blueprint flavor's `delay:` steps
 can't do.
 
-## Dashboard: the bundled card (recommended)
+## Dashboard: the bundled cards (recommended)
 
-The integration ships its own Lovelace card — no YAML, no placeholders,
-no manual resource registration. Add a card to any dashboard view, search
-for **Reef Feed & Water**, done:
+The integration ships **three** Lovelace cards — no YAML, no
+placeholders, no manual resource registration. Add a card to any
+dashboard view and search for "Reef Feed & Water" in the picker:
+
+| Card | What it shows |
+|---|---|
+| **Reef Feed & Water** (`custom:feedandwater-card`) | The main control: one compact row per tank — status dot, live countdowns, pump-speeds line, and contextual chips (Feed / Until I Stop / Water Change / Lights). ⚙ per row opens the settings drawer. |
+| **Reef Feed & Water — Device Tracker** (`custom:feedandwater-devices-card`) | The off-duration table per tank, with the tracked-devices list editable right on the card. |
+| **Reef Feed & Water — Lights** (`custom:feedandwater-lights-card`) | Dedicated light control per tank with the auto-off **timer slider front and center** (0 = stay on until turned off) and a live countdown. Shows only tanks that have lights configured. |
+
+All three discover tanks automatically and need zero config:
 
 ```yaml
-type: custom:feedandwater-card
+type: custom:feedandwater-card          # or -devices-card / -lights-card
 ```
 
-That's the entire config. The card discovers every tank automatically and
-renders each as one compact row: status dot, tank name, live countdown,
-and contextual action chips (Feed / Until I Stop / Water Change when
-idle; Stop Feeding or Resume while active). The ⚙ on each row opens a
-collapsed settings drawer with the duration/speed/delay sliders and the
-water-change log — keeping the main face compact even with 5-10 tanks
-stacked on one shop-floor screen.
-
-Optional config, and a visual editor provides both as form fields:
+Optional config (each card's visual editor provides these as form
+fields — a title box and tank checkboxes):
 
 ```yaml
 type: custom:feedandwater-card
 title: Fish Room        # heading above the tank rows
 tanks: [reef, frag]     # limit to specific tank slugs (default: all tanks)
 ```
+
+**One card per tank?** Add the same card several times and tick a single
+tank in each one's editor (or set `tanks: [reef]` etc.) — handy for
+Sections-layout dashboards where each tank gets its own grid slot.
 
 **YAML-mode dashboards only** (`lovelace: mode: yaml` in
 configuration.yaml — if you don't know what that is, you're not using
@@ -223,7 +228,8 @@ entities:
   - text.<slug>_tracked_devices
 ```
 
-Tracked-devices table:
+Tracked-devices table (the bundled **Device Tracker card** above does
+this with zero YAML — this snippet is the stock-card equivalent):
 
 ```yaml
 type: markdown

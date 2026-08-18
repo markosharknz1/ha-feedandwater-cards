@@ -125,6 +125,15 @@ const fmtRemaining = (iso) => {
   return m > 0 ? `${m}m ${String(s).padStart(2, "0")}s` : `${s}s`;
 };
 
+const fmtOffMinutes = (minutes) => {
+  if (minutes >= 60) {
+    const h = Math.floor(minutes / 60);
+    const m = Math.round(minutes % 60);
+    return `${h}h ${String(m).padStart(2, "0")}m`;
+  }
+  return `${Math.round(minutes)} min`;
+};
+
 class FeedAndWaterCard extends HTMLElement {
   static getConfigElement() {
     return document.createElement("feedandwater-card-editor");
@@ -429,6 +438,282 @@ class FeedAndWaterCard extends HTMLElement {
   }
 }
 
+class FeedAndWaterDevicesCard extends HTMLElement {
+  /* Device Tracker card: the tracked-devices off-duration table, with the
+   * comma-separated entity list editable right on the card. One block per
+   * tank; same zero-config discovery + tanks filter as the main card. */
+
+  static getConfigElement() {
+    return document.createElement("feedandwater-devices-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  getCardSize() {
+    return 3;
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    const hass = this._hass;
+    const tanks = discoverTanks(hass, this._config.tanks);
+
+    const style = `
+      <style>
+        ha-card { padding: 12px 16px; }
+        .heading { font-size: 1.1em; font-weight: 500; margin-bottom: 8px; }
+        .tank + .tank { border-top: 1px solid var(--divider-color); margin-top: 10px; padding-top: 10px; }
+        .name { font-weight: 500; margin-bottom: 6px; }
+        .edit { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+        .edit input { flex: 1; padding: 6px 8px; font: inherit; font-size: 0.88em;
+          background: var(--secondary-background-color); color: var(--primary-text-color);
+          border: 1px solid var(--divider-color); border-radius: 6px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.92em; }
+        th { text-align: left; color: var(--secondary-text-color); font-weight: 400;
+             padding: 2px 6px; border-bottom: 1px solid var(--divider-color); }
+        td { padding: 4px 6px; }
+        td.right, th.right { text-align: right; }
+        .empty { color: var(--secondary-text-color); font-size: 0.9em; padding: 4px 0; }
+      </style>`;
+
+    let body = "";
+    if (!hass) {
+      body = `<div class="empty">Waiting for Home Assistant…</div>`;
+    } else if (!tanks.length) {
+      body = `<div class="empty">No Reef Feed &amp; Water tanks found.</div>`;
+    } else {
+      body = tanks
+        .map((tank) => {
+          const text = this._hassState(tank, "tracked_devices");
+          const sensor = this._hassState(tank, "device_off_durations");
+          const devices = (sensor && sensor.attributes.devices) || [];
+          const rows = devices
+            .map(
+              (d) => `<tr>
+                <td>${d.name}</td>
+                <td>${d.state === "off" ? "🔴 Off" : d.state === "on" ? "🟢 On" : d.state}</td>
+                <td class="right">${d.state === "off" ? fmtOffMinutes(d.off_minutes) : "—"}</td>
+              </tr>`
+            )
+            .join("");
+          const table = devices.length
+            ? `<table><tr><th>Device</th><th>Status</th><th class="right">Off for</th></tr>${rows}</table>`
+            : `<div class="empty">No devices tracked yet — paste entity IDs above (comma-separated).</div>`;
+          const nameRow = tanks.length > 1 ? `<div class="name">${tank.name}</div>` : "";
+          return `<div class="tank">
+              ${nameRow}
+              <div class="edit">
+                <input type="text" placeholder="switch.skimmer_plug, fan.wavemaker_1, …"
+                  value="${text ? text.state.replace(/"/g, "&quot;") : ""}"
+                  data-slug="${tank.slug}">
+              </div>
+              ${table}
+            </div>`;
+        })
+        .join("");
+    }
+
+    const heading = this._config.title
+      ? `<div class="heading">${this._config.title}</div>`
+      : "";
+    this.shadowRoot.innerHTML = `${style}<ha-card>${heading}${body}</ha-card>`;
+
+    this.shadowRoot.querySelectorAll("input[data-slug]").forEach((el) => {
+      el.addEventListener("change", () => {
+        const tank = tanks.find((t) => t.slug === el.dataset.slug);
+        if (tank && tank.entities.tracked_devices) {
+          this._hass.callService("text", "set_value", {
+            entity_id: tank.entities.tracked_devices,
+            value: el.value,
+          });
+        }
+      });
+    });
+  }
+
+  _hassState(tank, suffix) {
+    const id = tank.entities[suffix];
+    return id && this._hass ? this._hass.states[id] : null;
+  }
+}
+
+class FeedAndWaterLightsCard extends HTMLElement {
+  /* Lights card: per-tank light control with the duration slider front and
+   * center — tap on/off, drag the timer (0 = stay on until turned off),
+   * live countdown while a timed session runs. Shows only tanks that have
+   * lights configured. */
+
+  static getConfigElement() {
+    return document.createElement("feedandwater-lights-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+    this._syncTicker();
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  disconnectedCallback() {
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
+  }
+
+  _syncTicker() {
+    const tanks = this._lightTanks();
+    const active = tanks.some((t) => {
+      const s = this._hassState(t, "light_stage");
+      return s && s.state === "on_timed";
+    });
+    if (active && !this._timer) {
+      this._timer = setInterval(() => this._render(), 1000);
+    } else if (!active && this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
+  }
+
+  _lightTanks() {
+    return discoverTanks(this._hass, this._config && this._config.tanks).filter(
+      (t) => t.entities.light_stage
+    );
+  }
+
+  _hassState(tank, suffix) {
+    const id = tank.entities[suffix];
+    return id && this._hass ? this._hass.states[id] : null;
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    const hass = this._hass;
+    const tanks = this._lightTanks();
+
+    const style = `
+      <style>
+        ha-card { padding: 12px 16px; }
+        .heading { font-size: 1.1em; font-weight: 500; margin-bottom: 8px; }
+        .tank + .tank { border-top: 1px solid var(--divider-color); margin-top: 10px; padding-top: 10px; }
+        .row { display: flex; align-items: center; gap: 8px; }
+        .name { font-weight: 500; }
+        .status { color: var(--secondary-text-color); font-size: 0.92em; flex: 1; text-align: right; }
+        .slider-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 0.9em; }
+        .slider-row label { flex: none; color: var(--secondary-text-color); }
+        .slider-row input[type=range] { flex: 1; }
+        .slider-row .val { flex: 0 0 6.5em; text-align: right; }
+        .chips { display: flex; gap: 8px; margin-top: 8px; }
+        .chip { display: inline-flex; align-items: center; gap: 6px;
+                border-radius: 16px; padding: 6px 16px; cursor: pointer;
+                font: inherit; font-size: 0.92em; border: 1px solid var(--divider-color);
+                background: var(--secondary-background-color);
+                color: var(--primary-text-color); }
+        .chip.go { background: var(--primary-color); color: var(--text-primary-color, #fff);
+                   border-color: var(--primary-color); }
+        .empty { color: var(--secondary-text-color); font-size: 0.9em; padding: 4px 0; }
+      </style>`;
+
+    let body = "";
+    if (!hass) {
+      body = `<div class="empty">Waiting for Home Assistant…</div>`;
+    } else if (!tanks.length) {
+      body = `<div class="empty">No tanks with lights configured — add lights via the
+        tank's Configure dialog (Settings &gt; Devices &amp; Services).</div>`;
+    } else {
+      body = tanks
+        .map((tank) => {
+          const stage = this._hassState(tank, "light_stage");
+          const timer = this._hassState(tank, "light_timer");
+          const state = stage ? stage.state : "off";
+          let statusText = "Off";
+          if (state === "on_timed")
+            statusText = `On — off in ${fmtRemaining(stage.attributes.off_at) || "…"}`;
+          else if (state === "on") statusText = "On until turned off";
+          const chip =
+            state === "off"
+              ? `<button class="chip go" data-slug="${tank.slug}" data-act="lights_on">💡 Lights On</button>`
+              : `<button class="chip" data-slug="${tank.slug}" data-act="lights_off">💡 Lights Off</button>`;
+          let slider = "";
+          if (timer) {
+            const a = timer.attributes;
+            const value = Number(timer.state);
+            const valText = value === 0 ? "until off" : `${Math.round(value)} min`;
+            slider = `<div class="slider-row">
+                <label>Timer</label>
+                <input type="range" min="${a.min}" max="${a.max}" step="${a.step}"
+                  value="${value}" data-slug="${tank.slug}" data-timer="1">
+                <span class="val">${valText}</span>
+              </div>`;
+          }
+          return `<div class="tank">
+              <div class="row">
+                <span>💡</span>
+                <span class="name">${tank.name}</span>
+                <span class="status">${statusText}</span>
+              </div>
+              ${slider}
+              <div class="chips">${chip}</div>
+            </div>`;
+        })
+        .join("");
+    }
+
+    const heading = this._config.title
+      ? `<div class="heading">${this._config.title}</div>`
+      : "";
+    this.shadowRoot.innerHTML = `${style}<ha-card>${heading}${body}</ha-card>`;
+
+    this.shadowRoot.querySelectorAll("[data-act]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const tank = tanks.find((t) => t.slug === el.dataset.slug);
+        if (tank && tank.entities[el.dataset.act]) {
+          this._hass.callService("button", "press", {
+            entity_id: tank.entities[el.dataset.act],
+          });
+        }
+      });
+    });
+    this.shadowRoot.querySelectorAll("input[data-timer]").forEach((el) => {
+      el.addEventListener("change", () => {
+        const tank = tanks.find((t) => t.slug === el.dataset.slug);
+        if (tank && tank.entities.light_timer) {
+          this._hass.callService("number", "set_value", {
+            entity_id: tank.entities.light_timer,
+            value: Number(el.value),
+          });
+        }
+      });
+    });
+  }
+}
+
 class FeedAndWaterCardEditor extends HTMLElement {
   setConfig(config) {
     this._config = { ...(config || {}) };
@@ -440,8 +725,13 @@ class FeedAndWaterCardEditor extends HTMLElement {
     this._render();
   }
 
+  // Overridden by the per-card editor subclasses below.
+  get cardType() {
+    return "custom:feedandwater-card";
+  }
+
   _emit() {
-    const config = { type: "custom:feedandwater-card" };
+    const config = { type: this.cardType };
     if (this._config.title) config.title = this._config.title;
     if (this._config.tanks && this._config.tanks.length) config.tanks = this._config.tanks;
     this.dispatchEvent(
@@ -501,13 +791,43 @@ class FeedAndWaterCardEditor extends HTMLElement {
   }
 }
 
+class FeedAndWaterDevicesCardEditor extends FeedAndWaterCardEditor {
+  get cardType() {
+    return "custom:feedandwater-devices-card";
+  }
+}
+
+class FeedAndWaterLightsCardEditor extends FeedAndWaterCardEditor {
+  get cardType() {
+    return "custom:feedandwater-lights-card";
+  }
+}
+
 customElements.define("feedandwater-card", FeedAndWaterCard);
 customElements.define("feedandwater-card-editor", FeedAndWaterCardEditor);
+customElements.define("feedandwater-devices-card", FeedAndWaterDevicesCard);
+customElements.define("feedandwater-devices-card-editor", FeedAndWaterDevicesCardEditor);
+customElements.define("feedandwater-lights-card", FeedAndWaterLightsCard);
+customElements.define("feedandwater-lights-card-editor", FeedAndWaterLightsCardEditor);
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "feedandwater-card",
-  name: "Reef Feed & Water",
-  description:
-    "Compact per-tank feed & water-change controls for the Reef Feed & Water integration. Zero config — discovers your tanks automatically.",
-});
+window.customCards.push(
+  {
+    type: "feedandwater-card",
+    name: "Reef Feed & Water",
+    description:
+      "Compact per-tank feed & water-change controls for the Reef Feed & Water integration. Zero config — discovers your tanks automatically.",
+  },
+  {
+    type: "feedandwater-devices-card",
+    name: "Reef Feed & Water — Device Tracker",
+    description:
+      "Off-duration table for each tank's tracked devices, with the tracked list editable on the card.",
+  },
+  {
+    type: "feedandwater-lights-card",
+    name: "Reef Feed & Water — Lights",
+    description:
+      "Per-tank light control with the auto-off timer slider front and center (0 = stay on until turned off).",
+  }
+);
