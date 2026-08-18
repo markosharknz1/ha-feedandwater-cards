@@ -30,6 +30,7 @@ const SENSOR_SUFFIXES = [
   "last_water_change",
   "device_off_durations",
   "light_stage",
+  "pump_speeds",
 ];
 const BUTTON_SUFFIXES = [
   "start_feed",
@@ -294,6 +295,9 @@ class FeedAndWaterCard extends HTMLElement {
         .name { font-weight: 500; }
         .status { color: var(--secondary-text-color); font-size: 0.92em;
                   flex: 1; text-align: right; }
+        .speeds { color: var(--secondary-text-color); font-size: 0.85em;
+                  margin: 4px 0 0 18px; }
+        .speeds b { color: var(--primary-text-color); font-weight: 500; }
         .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
         .chip { display: inline-flex; align-items: center; gap: 6px;
                 border-radius: 16px; padding: 5px 14px; cursor: pointer;
@@ -370,6 +374,17 @@ class FeedAndWaterCard extends HTMLElement {
                 </div>
               </div>`;
           }
+          // At-a-glance pump speeds line (only when the tank monitors any)
+          let speedsLine = "";
+          const speedsSensor = this._state(tank, "pump_speeds");
+          if (speedsSensor && (speedsSensor.attributes.speeds || []).length) {
+            const parts = speedsSensor.attributes.speeds.map((s) => {
+              const value =
+                !s.on ? "off" : s.value === null ? "?" : `${Math.round(s.value)}${s.unit}`;
+              return `${s.name} <b>${value}</b>`;
+            });
+            speedsLine = `<div class="speeds">${parts.join(" · ")}</div>`;
+          }
           return `<div class="tank">
               <div class="row">
                 <span class="dot ${status.dot}"></span>
@@ -378,6 +393,7 @@ class FeedAndWaterCard extends HTMLElement {
                 <button class="gear" data-slug="${tank.slug}" data-gear="1"
                   title="Tank settings">⚙</button>
               </div>
+              ${speedsLine}
               <div class="chips">${chips}</div>
               ${drawer}
             </div>`;

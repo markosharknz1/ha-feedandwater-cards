@@ -27,6 +27,7 @@ from .const import (
     CONF_RETURN_PUMPS,
     CONF_SKIMMERS,
     CONF_SLUG,
+    CONF_SPEED_DISPLAYS,
     CONF_WAVEMAKERS,
     DOMAIN,
 )
@@ -69,6 +70,9 @@ def _hardware_schema(current: dict[str, Any]) -> vol.Schema:
         vol.Optional(
             CONF_LIGHTS, default=current.get(CONF_LIGHTS, [])
         ): LIGHTS_SELECTOR,
+        vol.Optional(
+            CONF_SPEED_DISPLAYS, default=current.get(CONF_SPEED_DISPLAYS, [])
+        ): SPEED_SELECTOR,
     }
     power_current = current.get(CONF_POWER_SENSOR)
     if power_current:

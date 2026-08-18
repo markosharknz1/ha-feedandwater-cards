@@ -13,6 +13,7 @@ CONF_RETURN_PUMPS = "return_pumps"
 CONF_PUMP_SPEED_CONTROLS = "pump_speed_controls"
 CONF_POWER_SENSOR = "power_sensor"
 CONF_LIGHTS = "lights"
+CONF_SPEED_DISPLAYS = "speed_displays"
 
 # TankData.values keys — one per settings number entity
 VALUE_FEED_DURATION = "feed_duration"

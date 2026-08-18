@@ -10,6 +10,7 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
@@ -37,6 +38,8 @@ async def async_setup_entry(
     ]
     if tank.lights is not None:
         entities.append(LightStageSensor(tank))
+    if tank.monitored_speed_entities():
+        entities.append(PumpSpeedsSensor(tank))
     async_add_entities(entities)
 
 
@@ -178,6 +181,67 @@ class LightStageSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
             await self.tank.lights.async_restore(
                 last.state, _parse(last.attributes.get(ATTR_OFF_AT))
             )
+
+
+class PumpSpeedsSensor(FeedAndWaterEntity, SensorEntity):
+    """At-a-glance speeds for every monitored pump (feed-mode speed
+    controls + display-only additions). Event-driven: updates the instant
+    any underlying speed changes. State = number of readable pumps;
+    per-pump details live in the `speeds` attribute for the card and for
+    markdown tables."""
+
+    _attr_icon = "mdi:speedometer"
+    _attr_native_unit_of_measurement = "pumps"
+
+    def __init__(self, tank: TankData) -> None:
+        super().__init__(tank, "sensor", "pump_speeds")
+        self._speeds: list[dict[str, Any]] = []
+
+    def _read(self) -> None:
+        hass = self.tank.hass
+        result: list[dict[str, Any]] = []
+        for entity_id in self.tank.monitored_speed_entities():
+            state = hass.states.get(entity_id)
+            if state is None:
+                continue
+            value = self.tank.read_speed(entity_id)
+            unit = (
+                "%"
+                if entity_id.startswith("fan.")
+                else state.attributes.get("unit_of_measurement") or ""
+            )
+            result.append(
+                {
+                    "entity_id": entity_id,
+                    "name": state.attributes.get("friendly_name") or entity_id,
+                    "value": value,
+                    "unit": unit,
+                    "on": state.state != "off",
+                }
+            )
+        self._speeds = result
+
+    @property
+    def native_value(self) -> int:
+        return sum(1 for s in self._speeds if s["value"] is not None)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"speeds": self._speeds}
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._read()
+
+        async def _changed(_event: Any) -> None:
+            self._read()
+            self.async_write_ha_state()
+
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, self.tank.monitored_speed_entities(), _changed
+            )
+        )
 
 
 class OffDurationsSensor(FeedAndWaterEntity, SensorEntity):

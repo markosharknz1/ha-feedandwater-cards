@@ -23,6 +23,7 @@ from .const import (
     CONF_LIGHTS,
     CONF_POWER_SENSOR,
     CONF_PUMP_SPEED_CONTROLS,
+    CONF_SPEED_DISPLAYS,
     CONF_RETURN_PUMPS,
     CONF_SKIMMERS,
     CONF_SLUG,
@@ -135,6 +136,16 @@ class TankData:
         await self.hass.services.async_call(
             "number", "set_value", {"entity_id": entity_id, "value": value}, blocking=True
         )
+
+    def monitored_speed_entities(self) -> list[str]:
+        """Every pump speed worth showing at a glance: the feed-mode speed
+        controls plus any display-only additions, deduplicated in order."""
+        seen: list[str] = []
+        for key in (CONF_PUMP_SPEED_CONTROLS, CONF_SPEED_DISPLAYS):
+            for entity_id in self.option_entities(key):
+                if entity_id not in seen:
+                    seen.append(entity_id)
+        return seen
 
     def read_speed(self, entity_id: str) -> float | None:
         """Current value of a speed control, or None if unreadable."""
