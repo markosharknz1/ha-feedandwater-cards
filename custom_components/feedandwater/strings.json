@@ -6,7 +6,8 @@
         "menu_options": {
           "tank": "A tank (feed mode, water changes, lights…)",
           "light": "Just a light timer",
-          "maintenance": "A maintenance task (fleece roll, ATO reset…)"
+          "maintenance": "A maintenance task (fleece roll, ATO reset…)",
+          "redsea": "A RedSea task (ReefMat fleece / ATO reset)"
         }
       },
       "tank": {
@@ -71,6 +72,43 @@
           "slug": "Leave blank and it's created from the name automatically.",
           "maintenance_actions": "Entities to trigger when you tap Done — e.g. the filter roller's new-roll button or the ATO's reset/fill switch from your equipment's integration. Leave empty for a log-only task (Done just stamps the date).",
           "maintenance_status": "A sensor to watch on the card — e.g. the ATO's run-dry sensor or the roller's position sensor."
+        }
+      },
+      "redsea": {
+        "title": "Which RedSea task?",
+        "menu_options": {
+          "redsea_mat": "ReefMat — new fleece roll",
+          "redsea_ato": "ReefATO+ — dry-run reset"
+        }
+      },
+      "redsea_mat": {
+        "title": "ReefMat — new fleece roll",
+        "description": "Pickers here only list entities from your RedSea ReefBeat integration. Link the ReefMat's new-roll control so tapping Done starts the new roll and stamps the change date.",
+        "data": {
+          "name": "Task name",
+          "slug": "Entity ID prefix (optional)",
+          "maintenance_actions": "ReefMat new-roll control (optional)",
+          "maintenance_status": "ReefMat status sensor (optional)"
+        },
+        "data_description": {
+          "slug": "Leave blank and it's created from the name automatically.",
+          "maintenance_actions": "The ReefMat control that starts a new roll (a button/switch/number on its device page). Leave empty for a log-only tracker.",
+          "maintenance_status": "e.g. the roll position / near-end sensor, shown live on the Maintenance card."
+        }
+      },
+      "redsea_ato": {
+        "title": "ReefATO+ — dry-run reset",
+        "description": "Pickers here only list entities from your RedSea ReefBeat integration. Link the ATO's reset/fill control so tapping Done clears a dry-run and stamps when it happened.",
+        "data": {
+          "name": "Task name",
+          "slug": "Entity ID prefix (optional)",
+          "maintenance_actions": "ATO reset/fill control (optional)",
+          "maintenance_status": "ATO status sensor (optional)"
+        },
+        "data_description": {
+          "slug": "Leave blank and it's created from the name automatically.",
+          "maintenance_actions": "The ATO control that resets it / triggers a fill (a button/switch on its device page). Leave empty for a log-only tracker.",
+          "maintenance_status": "e.g. the run-dry or water-level sensor — the Maintenance card shows it live and highlights it red when it's flagging."
         }
       }
     },

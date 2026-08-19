@@ -59,6 +59,25 @@ MAINT_STATUS_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain=["binary_sensor", "sensor"])
 )
 
+# RedSea-targeted variants: same shapes, but the pickers only offer
+# entities from the ReefBeat integration (domain "redsea",
+# Elwinmage/ha-reefbeat-component) — for the dedicated ReefMat/ATO flows.
+REDSEA_ACTION_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(
+        multiple=True,
+        filter=selector.EntityFilterSelectorConfig(
+            integration="redsea", domain=["button", "switch", "number"]
+        ),
+    )
+)
+REDSEA_STATUS_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(
+        filter=selector.EntityFilterSelectorConfig(
+            integration="redsea", domain=["binary_sensor", "sensor"]
+        )
+    )
+)
+
 
 def _hardware_schema(current: dict[str, Any]) -> vol.Schema:
     """Hardware pickers, pre-filled with current values when re-shown by
@@ -110,7 +129,14 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         return self.async_show_menu(
-            step_id="user", menu_options=["tank", "light", "maintenance"]
+            step_id="user", menu_options=["tank", "light", "maintenance", "redsea"]
+        )
+
+    async def async_step_redsea(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return self.async_show_menu(
+            step_id="redsea", menu_options=["redsea_mat", "redsea_ato"]
         )
 
     def _resolve_identity(
@@ -210,6 +236,56 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+        )
+
+    async def _async_step_redsea_task(
+        self, step_id: str, default_name: str, user_input: dict[str, Any] | None
+    ) -> ConfigFlowResult:
+        """Shared RedSea-targeted maintenance form (ReefMat / ATO)."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            slug = self._resolve_identity(user_input, errors)
+            if slug is not None:
+                await self.async_set_unique_id(slug)
+                self._abort_if_unique_id_configured()
+                options: dict[str, Any] = {
+                    CONF_MAINT_ACTIONS: user_input.get(CONF_MAINT_ACTIONS, [])
+                }
+                if user_input.get(CONF_MAINT_STATUS):
+                    options[CONF_MAINT_STATUS] = user_input[CONF_MAINT_STATUS]
+                return self.async_create_entry(
+                    title=self._name or slug,
+                    data={CONF_SLUG: slug, CONF_KIND: KIND_MAINTENANCE},
+                    options=options,
+                )
+
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=vol.Schema(
+                {
+                    vol.Required("name", default=default_name): str,
+                    vol.Optional(CONF_SLUG): str,
+                    vol.Optional(
+                        CONF_MAINT_ACTIONS, default=[]
+                    ): REDSEA_ACTION_SELECTOR,
+                    vol.Optional(CONF_MAINT_STATUS): REDSEA_STATUS_SELECTOR,
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_redsea_mat(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_step_redsea_task(
+            "redsea_mat", "Fleece Roll", user_input
+        )
+
+    async def async_step_redsea_ato(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_step_redsea_task(
+            "redsea_ato", "ATO Reset", user_input
         )
 
     async def async_step_hardware(
