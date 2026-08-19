@@ -866,6 +866,8 @@ class FeedAndWaterSpeedsCardEditor extends HTMLElement {
   }
 
   _render() {
+    // hass may be assigned before setConfig in HA's edit dialog.
+    if (!this._config) this._config = {};
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     const pumps = this._hass ? this._monitored() : [];
     const selected = new Set(this._config.entities || []);
@@ -940,7 +942,7 @@ class FeedAndWaterMaintenanceCard extends HTMLElement {
   }
 
   _tasks() {
-    return discoverTanks(this._hass, this._config.tanks).filter(
+    return discoverTanks(this._hass, this._config && this._config.tanks).filter(
       (t) => t.entities.done && t.entities.last_done
     );
   }
@@ -1057,6 +1059,9 @@ class FeedAndWaterCardEditor extends HTMLElement {
   }
 
   _render() {
+    // HA's edit dialog can assign hass before setConfig — never assume
+    // _config exists yet.
+    if (!this._config) this._config = {};
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     const tanks = discoverTanks(this._hass, null);
     const selected = new Set(this._config.tanks || []);

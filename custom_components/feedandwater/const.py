@@ -40,8 +40,9 @@ NUMBER_SPECS: dict[str, tuple[float, float, float, float, str]] = {
     VALUE_SKIMMER_RESTART_DELAY: (10, 0, 30, 1, "min"),
     VALUE_POWER_LOSS_DELAY: (5, 0, 60, 1, "min"),
     VALUE_LAST_WATER_CHANGE_VOLUME: (0, 0, 500, 1, "L"),
-    # 0 = stay on until turned off manually
-    VALUE_LIGHT_TIMER: (0, 0, 480, 5, "min"),
+    # 0 = stay on until turned off manually; up-to-an-hour range keeps the
+    # slider usable (user feedback: 8h max made real values a sliver)
+    VALUE_LIGHT_TIMER: (0, 0, 60, 5, "min"),
 }
 
 # "Until I Stop" starts a feed at the max duration rather than a true
