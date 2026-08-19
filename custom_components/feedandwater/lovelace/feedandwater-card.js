@@ -728,6 +728,183 @@ class FeedAndWaterLightsCard extends HTMLElement {
   }
 }
 
+class FeedAndWaterSpeedsCard extends HTMLElement {
+  /* Speeds card: big per-pump speed readouts, filterable to exactly the
+   * pumps you care about (e.g. just the wavemakers). Data comes from each
+   * tank's pump_speeds sensor; which pumps exist there is controlled by
+   * the tank's speed-control / speed-display config. */
+
+  static getConfigElement() {
+    return document.createElement("feedandwater-speeds-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  _rows() {
+    const want =
+      this._config.entities && this._config.entities.length
+        ? new Set(this._config.entities)
+        : null;
+    const rows = [];
+    for (const tank of discoverTanks(this._hass, this._config.tanks)) {
+      const sensor = tank.entities.pump_speeds
+        ? this._hass.states[tank.entities.pump_speeds]
+        : null;
+      for (const s of (sensor && sensor.attributes.speeds) || []) {
+        if (want && !want.has(s.entity_id)) continue;
+        rows.push({ tank: tank.name, ...s });
+      }
+    }
+    return rows;
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    const hass = this._hass;
+
+    const style = `
+      <style>
+        ha-card { padding: 12px 16px; }
+        .heading { font-size: 1.1em; font-weight: 500; margin-bottom: 8px; }
+        .row { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; }
+        .row + .row { border-top: 1px solid var(--divider-color); }
+        .pump { font-weight: 500; }
+        .tank { color: var(--secondary-text-color); font-size: 0.85em; }
+        .value { margin-left: auto; font-size: 1.35em; font-weight: 500; }
+        .value.off { color: var(--secondary-text-color); font-size: 1em; }
+        .empty { color: var(--secondary-text-color); font-size: 0.9em; padding: 4px 0; }
+      </style>`;
+
+    let body = "";
+    if (!hass) {
+      body = `<div class="empty">Waiting for Home Assistant…</div>`;
+    } else {
+      const rows = this._rows();
+      body = rows.length
+        ? rows
+            .map(
+              (r) => `<div class="row">
+                <span class="pump">${r.name}</span>
+                <span class="tank">${r.tank}</span>
+                <span class="value ${r.on ? "" : "off"}">${
+                  !r.on ? "off" : r.value === null ? "?" : Math.round(r.value) + r.unit
+                }</span>
+              </div>`
+            )
+            .join("")
+        : `<div class="empty">No pump speeds to show — add speed controls or
+            Speed display(s) in a tank's Configure dialog, then pick pumps in
+            this card's editor.</div>`;
+    }
+
+    const heading = this._config.title
+      ? `<div class="heading">${this._config.title}</div>`
+      : "";
+    this.shadowRoot.innerHTML = `${style}<ha-card>${heading}${body}</ha-card>`;
+  }
+}
+
+class FeedAndWaterSpeedsCardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = { ...(config || {}) };
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  _monitored() {
+    const out = [];
+    for (const tank of discoverTanks(this._hass, null)) {
+      const sensor = tank.entities.pump_speeds
+        ? this._hass.states[tank.entities.pump_speeds]
+        : null;
+      for (const s of (sensor && sensor.attributes.speeds) || []) {
+        out.push({ tank: tank.name, entity_id: s.entity_id, name: s.name });
+      }
+    }
+    return out;
+  }
+
+  _emit() {
+    const config = { type: "custom:feedandwater-speeds-card" };
+    if (this._config.title) config.title = this._config.title;
+    if (this._config.entities && this._config.entities.length)
+      config.entities = this._config.entities;
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  _render() {
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    const pumps = this._hass ? this._monitored() : [];
+    const selected = new Set(this._config.entities || []);
+    const rows = pumps
+      .map(
+        (p) => `<label class="pump-row">
+          <input type="checkbox" value="${p.entity_id}"
+            ${!selected.size || selected.has(p.entity_id) ? "checked" : ""}>
+          ${p.name} <span class="hint">(${p.tank})</span></label>`
+      )
+      .join("");
+    this.shadowRoot.innerHTML = `
+      <style>
+        .wrap { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+        .hint { color: var(--secondary-text-color); font-size: 0.88em; }
+        .pump-row { display: flex; align-items: center; gap: 8px; }
+        input[type=text] { padding: 6px 8px; font: inherit;
+          background: var(--card-background-color); color: var(--primary-text-color);
+          border: 1px solid var(--divider-color); border-radius: 4px; }
+      </style>
+      <div class="wrap">
+        <label>Title (optional)
+          <input type="text" id="title" value="${this._config.title || ""}"></label>
+        <div>Pumps shown ${pumps.length ? "" : "<span class='hint'>(none monitored yet — add speed controls or Speed displays in a tank's Configure dialog)</span>"}</div>
+        ${rows}
+        <div class="hint">Untick pumps to hide them — e.g. keep only the
+          wavemakers ticked for a wavemaker-speeds card.</div>
+      </div>`;
+
+    this.shadowRoot.getElementById("title").addEventListener("input", (ev) => {
+      this._config.title = ev.target.value;
+      this._emit();
+    });
+    this.shadowRoot.querySelectorAll("input[type=checkbox]").forEach((el) => {
+      el.addEventListener("change", () => {
+        const checked = [...this.shadowRoot.querySelectorAll("input[type=checkbox]")]
+          .filter((c) => c.checked)
+          .map((c) => c.value);
+        this._config.entities = checked.length === pumps.length ? [] : checked;
+        this._emit();
+      });
+    });
+  }
+}
+
 class FeedAndWaterCardEditor extends HTMLElement {
   setConfig(config) {
     this._config = { ...(config || {}) };
@@ -823,6 +1000,8 @@ customElements.define("feedandwater-devices-card", FeedAndWaterDevicesCard);
 customElements.define("feedandwater-devices-card-editor", FeedAndWaterDevicesCardEditor);
 customElements.define("feedandwater-lights-card", FeedAndWaterLightsCard);
 customElements.define("feedandwater-lights-card-editor", FeedAndWaterLightsCardEditor);
+customElements.define("feedandwater-speeds-card", FeedAndWaterSpeedsCard);
+customElements.define("feedandwater-speeds-card-editor", FeedAndWaterSpeedsCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push(
@@ -843,5 +1022,11 @@ window.customCards.push(
     name: "Reef Feed & Water — Lights",
     description:
       "Per-tank light control with the auto-off timer slider front and center (0 = stay on until turned off).",
+  },
+  {
+    type: "feedandwater-speeds-card",
+    name: "Reef Feed & Water — Speeds",
+    description:
+      "Big pump-speed readouts, filterable to exactly the pumps you want — e.g. just the wavemakers.",
   }
 );
