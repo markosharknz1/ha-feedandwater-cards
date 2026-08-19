@@ -14,7 +14,13 @@ from .const import DOMAIN
 from .controllers import TankData
 from .frontend import async_register_card
 
-PLATFORMS = [Platform.BUTTON, Platform.NUMBER, Platform.SENSOR, Platform.TEXT]
+PLATFORMS = [
+    Platform.BUTTON,
+    Platform.NUMBER,
+    Platform.SENSOR,
+    Platform.SWITCH,
+    Platform.TEXT,
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

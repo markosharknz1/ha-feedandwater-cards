@@ -228,6 +228,11 @@
       "tracked_devices": {
         "name": "Tracked devices"
       }
+    },
+    "switch": {
+      "lights": {
+        "name": "Lights"
+      }
     }
   }
 }
