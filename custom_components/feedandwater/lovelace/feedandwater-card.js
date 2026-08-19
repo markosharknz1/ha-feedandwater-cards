@@ -341,6 +341,11 @@ class FeedAndWaterCard extends HTMLElement {
         .slider-row label { flex: 0 0 11.5em; color: var(--secondary-text-color); }
         .slider-row input[type=range] { flex: 1; }
         .slider-row .val { flex: 0 0 4.5em; text-align: right; }
+        /* Inline feed-timer slider on the tank row (drawer sliders keep
+           their wide fixed labels) */
+        .tank > .slider-row { margin-top: 6px; }
+        .tank > .slider-row label { flex: 0 0 auto; }
+        .tank > .slider-row .val { flex: 0 0 5.5em; }
         .drawer-foot { display: flex; align-items: center; justify-content: space-between;
                        margin-top: 6px; font-size: 0.88em;
                        color: var(--secondary-text-color); }
@@ -411,6 +416,20 @@ class FeedAndWaterCard extends HTMLElement {
             });
             speedsLine = `<div class="speeds">${parts.join(" · ")}</div>`;
           }
+          // Inline feed-timer slider on the row face (same pattern as the
+          // Lights card's Timer) — drags set the feed duration used by the
+          // next tap of Feed.
+          let feedSlider = "";
+          const feedDur = this._state(tank, "feed_duration");
+          if (feedDur && tank.entities.start_feed) {
+            const a = feedDur.attributes;
+            feedSlider = `<div class="slider-row">
+                <label>Feed timer</label>
+                <input type="range" min="${a.min}" max="${a.max}" step="${a.step}"
+                  value="${feedDur.state}" data-slug="${tank.slug}" data-num="feed_duration">
+                <span class="val">${Number(feedDur.state)} min</span>
+              </div>`;
+          }
           return `<div class="tank">
               <div class="row">
                 <span class="dot ${status.dot}"></span>
@@ -420,6 +439,7 @@ class FeedAndWaterCard extends HTMLElement {
                   title="Tank settings">⚙</button>
               </div>
               ${speedsLine}
+              ${feedSlider}
               <div class="chips">${chips}</div>
               ${drawer}
             </div>`;
