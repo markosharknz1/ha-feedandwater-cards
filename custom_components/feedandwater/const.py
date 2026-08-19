@@ -15,6 +15,12 @@ CONF_POWER_SENSOR = "power_sensor"
 CONF_LIGHTS = "lights"
 CONF_SPEED_DISPLAYS = "speed_displays"
 
+# Maintenance-task entries (repeatable, like light timers)
+CONF_KIND = "kind"
+KIND_MAINTENANCE = "maintenance"
+CONF_MAINT_ACTIONS = "maintenance_actions"
+CONF_MAINT_STATUS = "maintenance_status"
+
 # TankData.values keys — one per settings number entity
 VALUE_FEED_DURATION = "feed_duration"
 VALUE_RETURN_PUMP_FEED_SPEED = "return_pump_feed_speed"

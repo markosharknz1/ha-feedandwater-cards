@@ -31,6 +31,7 @@ const SENSOR_SUFFIXES = [
   "device_off_durations",
   "light_stage",
   "pump_speeds",
+  "last_done",
 ];
 const BUTTON_SUFFIXES = [
   "start_feed",
@@ -41,6 +42,7 @@ const BUTTON_SUFFIXES = [
   "log_water_change",
   "lights_on",
   "lights_off",
+  "done",
 ];
 const NUMBER_SUFFIXES = [
   "feed_duration",
@@ -107,11 +109,11 @@ function discoverTanks(hass, slugFilter) {
     for (const entityId of Object.keys(hass.states)) add(entityId, null);
   }
 
-  // A tank must have its own start_feed button (full tank) or lights_on
-  // button (standalone light timer) — filters out lookalike entities from
-  // the manual-YAML flavor of this pack.
+  // An entry must have its own start_feed button (full tank), lights_on
+  // button (light timer), or done button (maintenance task) — filters out
+  // lookalike entities from the manual-YAML flavor of this pack.
   const result = [...tanks.values()].filter(
-    (t) => t.entities.start_feed || t.entities.lights_on
+    (t) => t.entities.start_feed || t.entities.lights_on || t.entities.done
   );
   for (const t of result) if (!t.name) t.name = t.slug;
   result.sort((a, b) => a.name.localeCompare(b.name));
@@ -295,7 +297,11 @@ class FeedAndWaterCard extends HTMLElement {
     if (!this._config) return;
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     const hass = this._hass;
-    const tanks = discoverTanks(hass, this._config.tanks);
+    // Tanks and light timers belong on the main card; maintenance tasks
+    // have their own card.
+    const tanks = discoverTanks(hass, this._config.tanks).filter(
+      (t) => t.entities.start_feed || t.entities.lights_on
+    );
 
     const style = `
       <style>
@@ -905,6 +911,122 @@ class FeedAndWaterSpeedsCardEditor extends HTMLElement {
   }
 }
 
+class FeedAndWaterMaintenanceCard extends HTMLElement {
+  /* Maintenance card: repeatable "mark it done" tasks (fleece roll, ATO
+   * reset, filter socks…) — time since last done, an optional live status
+   * sensor from the equipment's own integration, and a Done button that
+   * fires the linked action entities and stamps the date. */
+
+  static getConfigElement() {
+    return document.createElement("feedandwater-maintenance-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  _tasks() {
+    return discoverTanks(this._hass, this._config.tanks).filter(
+      (t) => t.entities.done && t.entities.last_done
+    );
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    const hass = this._hass;
+
+    const style = `
+      <style>
+        ha-card { padding: 12px 16px; }
+        .heading { font-size: 1.1em; font-weight: 500; margin-bottom: 8px; }
+        .task { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+        .task + .task { border-top: 1px solid var(--divider-color); }
+        .info { flex: 1; min-width: 0; }
+        .name { font-weight: 500; }
+        .ago { color: var(--secondary-text-color); font-size: 0.88em; }
+        .stat { font-size: 0.88em; padding: 3px 10px; border-radius: 12px;
+                background: var(--secondary-background-color);
+                color: var(--secondary-text-color); }
+        .stat.alert { background: var(--error-color, #f44336); color: #fff; }
+        .done-btn { border-radius: 16px; padding: 6px 16px; cursor: pointer;
+                font: inherit; font-size: 0.92em; border: 1px solid var(--primary-color);
+                background: var(--primary-color); color: var(--text-primary-color, #fff); }
+        .empty { color: var(--secondary-text-color); font-size: 0.9em; padding: 4px 0; }
+      </style>`;
+
+    let body = "";
+    if (!hass) {
+      body = `<div class="empty">Waiting for Home Assistant…</div>`;
+    } else {
+      const tasks = this._tasks();
+      body = tasks.length
+        ? tasks
+            .map((task) => {
+              const last = hass.states[task.entities.last_done];
+              let ago = "never";
+              if (last && !["unknown", "unavailable"].includes(last.state)) {
+                const days = (Date.now() - new Date(last.state).getTime()) / 86400000;
+                if (days >= 1.5) ago = `${Math.round(days)} days ago`;
+                else if (days >= 1) ago = "1 day ago";
+                else if (days * 24 >= 1) ago = `${Math.round(days * 24)}h ago`;
+                else ago = "just now";
+              }
+              let stat = "";
+              const statusId = last && last.attributes.status_entity;
+              if (statusId && hass.states[statusId]) {
+                const s = hass.states[statusId];
+                const alert = s.state === "on" || s.state === "problem";
+                const label = s.attributes.friendly_name || statusId;
+                stat = `<span class="stat ${alert ? "alert" : ""}">${label}: ${s.state}</span>`;
+              }
+              return `<div class="task">
+                  <div class="info">
+                    <div class="name">${task.name}</div>
+                    <div class="ago">Last done: ${ago}</div>
+                  </div>
+                  ${stat}
+                  <button class="done-btn" data-slug="${task.slug}">Done</button>
+                </div>`;
+            })
+            .join("")
+        : `<div class="empty">No maintenance tasks yet — add one via
+            Settings &gt; Devices &amp; Services &gt; Add Integration &gt;
+            Reef Feed &amp; Water &gt; "A maintenance task".</div>`;
+    }
+
+    const heading = this._config.title
+      ? `<div class="heading">${this._config.title}</div>`
+      : "";
+    this.shadowRoot.innerHTML = `${style}<ha-card>${heading}${body}</ha-card>`;
+
+    this.shadowRoot.querySelectorAll(".done-btn").forEach((el) => {
+      el.addEventListener("click", () => {
+        const task = this._tasks().find((t) => t.slug === el.dataset.slug);
+        if (task) {
+          this._hass.callService("button", "press", {
+            entity_id: task.entities.done,
+          });
+        }
+      });
+    });
+  }
+}
+
 class FeedAndWaterCardEditor extends HTMLElement {
   setConfig(config) {
     this._config = { ...(config || {}) };
@@ -994,6 +1116,12 @@ class FeedAndWaterLightsCardEditor extends FeedAndWaterCardEditor {
   }
 }
 
+class FeedAndWaterMaintenanceCardEditor extends FeedAndWaterCardEditor {
+  get cardType() {
+    return "custom:feedandwater-maintenance-card";
+  }
+}
+
 customElements.define("feedandwater-card", FeedAndWaterCard);
 customElements.define("feedandwater-card-editor", FeedAndWaterCardEditor);
 customElements.define("feedandwater-devices-card", FeedAndWaterDevicesCard);
@@ -1002,6 +1130,11 @@ customElements.define("feedandwater-lights-card", FeedAndWaterLightsCard);
 customElements.define("feedandwater-lights-card-editor", FeedAndWaterLightsCardEditor);
 customElements.define("feedandwater-speeds-card", FeedAndWaterSpeedsCard);
 customElements.define("feedandwater-speeds-card-editor", FeedAndWaterSpeedsCardEditor);
+customElements.define("feedandwater-maintenance-card", FeedAndWaterMaintenanceCard);
+customElements.define(
+  "feedandwater-maintenance-card-editor",
+  FeedAndWaterMaintenanceCardEditor
+);
 
 window.customCards = window.customCards || [];
 window.customCards.push(
@@ -1028,5 +1161,11 @@ window.customCards.push(
     name: "Reef Feed & Water — Speeds",
     description:
       "Big pump-speed readouts, filterable to exactly the pumps you want — e.g. just the wavemakers.",
+  },
+  {
+    type: "feedandwater-maintenance-card",
+    name: "Reef Feed & Water — Maintenance",
+    description:
+      "Repeatable mark-it-done tasks (fleece roll, ATO reset…) with time-since counters, live equipment status, and a Done button that fires the linked action.",
   }
 );

@@ -21,7 +21,10 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_KIND,
     CONF_LIGHTS,
+    CONF_MAINT_ACTIONS,
+    CONF_MAINT_STATUS,
     CONF_POWER_SENSOR,
     CONF_PUMP_SPEED_CONTROLS,
     CONF_RETURN_PUMPS,
@@ -30,6 +33,7 @@ from .const import (
     CONF_SPEED_DISPLAYS,
     CONF_WAVEMAKERS,
     DOMAIN,
+    KIND_MAINTENANCE,
 )
 from .util import slugify_name, valid_slug
 
@@ -47,6 +51,12 @@ POWER_SELECTOR = selector.EntitySelector(
 )
 LIGHTS_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain=["switch", "light", "fan"], multiple=True)
+)
+MAINT_ACTION_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain=["button", "switch", "script"], multiple=True)
+)
+MAINT_STATUS_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain=["binary_sensor", "sensor"])
 )
 
 
@@ -99,7 +109,9 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        return self.async_show_menu(step_id="user", menu_options=["tank", "light"])
+        return self.async_show_menu(
+            step_id="user", menu_options=["tank", "light", "maintenance"]
+        )
 
     def _resolve_identity(
         self, user_input: dict[str, Any], errors: dict[str, str]
@@ -161,6 +173,40 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
                     vol.Required("name"): str,
                     vol.Optional(CONF_SLUG): str,
                     vol.Required(CONF_LIGHTS): LIGHTS_SELECTOR,
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_maintenance(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Repeatable maintenance task: fleece roll change, ATO reset, …"""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            slug = self._resolve_identity(user_input, errors)
+            if slug is not None:
+                await self.async_set_unique_id(slug)
+                self._abort_if_unique_id_configured()
+                options: dict[str, Any] = {
+                    CONF_MAINT_ACTIONS: user_input.get(CONF_MAINT_ACTIONS, [])
+                }
+                if user_input.get(CONF_MAINT_STATUS):
+                    options[CONF_MAINT_STATUS] = user_input[CONF_MAINT_STATUS]
+                return self.async_create_entry(
+                    title=self._name or slug,
+                    data={CONF_SLUG: slug, CONF_KIND: KIND_MAINTENANCE},
+                    options=options,
+                )
+
+        return self.async_show_form(
+            step_id="maintenance",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("name"): str,
+                    vol.Optional(CONF_SLUG): str,
+                    vol.Optional(CONF_MAINT_ACTIONS, default=[]): MAINT_ACTION_SELECTOR,
+                    vol.Optional(CONF_MAINT_STATUS): MAINT_STATUS_SELECTOR,
                 }
             ),
             errors=errors,

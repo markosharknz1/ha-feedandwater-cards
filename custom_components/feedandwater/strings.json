@@ -5,7 +5,8 @@
         "title": "What do you want to add?",
         "menu_options": {
           "tank": "A tank (feed mode, water changes, lights…)",
-          "light": "Just a light timer"
+          "light": "Just a light timer",
+          "maintenance": "A maintenance task (fleece roll, ATO reset…)"
         }
       },
       "tank": {
@@ -54,6 +55,22 @@
           "power_sensor": "Optional. A sensor that shows when mains/UPS power is on — enables a delayed skimmer restart after a power cut, so it doesn't foam over.",
           "lights": "Optional. Lights (or anything switchable — e.g. a Tapo plug running LED strips) you want a tap-to-run timer for. The Light timer slider sets how long they stay on; 0 keeps them on until you tap Lights off.",
           "speed_displays": "Optional. Extra pump speeds to show at a glance on the card — display only, never adjusted (e.g. a wavemaker's flow control). Feed-mode speed controls are always shown automatically."
+        }
+      },
+      "maintenance": {
+        "title": "New maintenance task",
+        "description": "A repeatable 'mark it done' task with a time-since counter — e.g. changing the filter-roller fleece, resetting an ATO after a dry run, swapping filter socks. Add one entry per task.",
+        "data": {
+          "name": "Task name",
+          "slug": "Entity ID prefix (optional)",
+          "maintenance_actions": "Action to run (optional)",
+          "maintenance_status": "Status sensor (optional)"
+        },
+        "data_description": {
+          "name": "e.g. \"Fleece Roll\" or \"ATO Reset\".",
+          "slug": "Leave blank and it's created from the name automatically.",
+          "maintenance_actions": "Entities to trigger when you tap Done — e.g. the filter roller's new-roll button or the ATO's reset/fill switch from your equipment's integration. Leave empty for a log-only task (Done just stamps the date).",
+          "maintenance_status": "A sensor to watch on the card — e.g. the ATO's run-dry sensor or the roller's position sensor."
         }
       }
     },
@@ -141,6 +158,9 @@
       },
       "lights_off": {
         "name": "Lights off"
+      },
+      "done": {
+        "name": "Done"
       }
     },
     "sensor": {
@@ -161,6 +181,9 @@
       },
       "pump_speeds": {
         "name": "Pump speeds"
+      },
+      "last_done": {
+        "name": "Last done"
       }
     },
     "text": {

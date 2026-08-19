@@ -67,6 +67,13 @@ async def async_setup_entry(
             ("lights_off", "mdi:lightbulb-off-outline", lights_off),
         ]
 
+    if tank.is_maintenance:
+
+        async def run_maintenance() -> None:
+            await tank.async_run_maintenance()
+
+        buttons.append(("done", "mdi:check-circle-outline", run_maintenance))
+
     async_add_entities(
         TankButton(tank, suffix, icon, action) for suffix, icon, action in buttons
     )

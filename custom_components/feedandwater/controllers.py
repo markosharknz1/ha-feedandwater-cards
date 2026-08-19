@@ -20,10 +20,13 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_KIND,
     CONF_LIGHTS,
+    CONF_MAINT_ACTIONS,
     CONF_POWER_SENSOR,
     CONF_PUMP_SPEED_CONTROLS,
     CONF_SPEED_DISPLAYS,
+    KIND_MAINTENANCE,
     CONF_RETURN_PUMPS,
     CONF_SKIMMERS,
     CONF_SLUG,
@@ -89,6 +92,8 @@ class TankData:
     tracked_devices: str = ""
     last_water_change: datetime | None = None
     last_water_change_listeners: _Notifier = field(default_factory=_Notifier)
+    maintenance_last_done: datetime | None = None
+    maintenance_done_listeners: _Notifier = field(default_factory=_Notifier)
     feed: "FeedController" = field(init=False)
     water: "WaterChangeController" = field(init=False)
     power: "PowerLossController | None" = field(init=False, default=None)
@@ -114,6 +119,29 @@ class TankData:
             self.option_entities(key)
             for key in (CONF_WAVEMAKERS, CONF_SKIMMERS, CONF_RETURN_PUMPS)
         )
+
+    @property
+    def is_maintenance(self) -> bool:
+        """Whether this entry is a maintenance task (fleece roll, ATO
+        reset, …) rather than a tank/light."""
+        return self.entry.data.get(CONF_KIND) == KIND_MAINTENANCE
+
+    async def async_run_maintenance(self) -> None:
+        """Fire the task's linked action entities (if any), then stamp the
+        last-done timestamp. Buttons get pressed; switches/scripts get
+        turned on — vendor-agnostic, same as everything else here."""
+        for entity_id in self.option_entities(CONF_MAINT_ACTIONS):
+            domain = entity_id.split(".", 1)[0]
+            if domain == "button":
+                await self.hass.services.async_call(
+                    "button", "press", {"entity_id": entity_id}, blocking=True
+                )
+            else:
+                await self.hass.services.async_call(
+                    "homeassistant", "turn_on", {"entity_id": entity_id}, blocking=True
+                )
+        self.maintenance_last_done = dt_util.utcnow()
+        self.maintenance_done_listeners._notify()
 
     def option_entities(self, key: str) -> list[str]:
         value = self.entry.options.get(key) or []

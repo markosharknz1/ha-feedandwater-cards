@@ -44,6 +44,8 @@ async def async_setup_entry(
         entities.append(LightStageSensor(tank))
     if tank.monitored_speed_entities():
         entities.append(PumpSpeedsSensor(tank))
+    if tank.is_maintenance:
+        entities.append(MaintenanceSensor(tank))
     async_add_entities(entities)
 
 
@@ -246,6 +248,42 @@ class PumpSpeedsSensor(FeedAndWaterEntity, SensorEntity):
                 self.hass, self.tank.monitored_speed_entities(), _changed
             )
         )
+
+
+class MaintenanceSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
+    """Timestamp of when this maintenance task was last done, with the
+    linked status entity (if any) exposed as an attribute so the card can
+    show live device state (e.g. an ATO run-dry binary sensor)."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:wrench-clock"
+
+    def __init__(self, tank: TankData) -> None:
+        super().__init__(tank, "sensor", "last_done")
+
+    @property
+    def native_value(self) -> datetime | None:
+        return self.tank.maintenance_last_done
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        from .const import CONF_MAINT_ACTIONS, CONF_MAINT_STATUS
+
+        return {
+            "status_entity": self.tank.entry.options.get(CONF_MAINT_STATUS),
+            "action_entities": self.tank.option_entities(CONF_MAINT_ACTIONS),
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.tank.maintenance_done_listeners.async_add_listener(
+                self.async_write_ha_state
+            )
+        )
+        last = await self.async_get_last_state()
+        if last is not None and self.tank.maintenance_last_done is None:
+            self.tank.maintenance_last_done = _parse(last.state)
 
 
 class OffDurationsSensor(FeedAndWaterEntity, SensorEntity):
