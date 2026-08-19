@@ -40,14 +40,18 @@ async def async_setup_entry(
     async def log_water_change() -> None:
         tank.async_log_water_change()
 
-    buttons = [
-        ("start_feed", "mdi:food-drumstick", start_feed),
-        ("feed_until_stop", "mdi:infinity", feed_until_stop),
-        ("stop_feed", "mdi:stop-circle-outline", stop_feed),
-        ("start_water_change", "mdi:water-sync", start_water_change),
-        ("resume_water_change", "mdi:play-circle-outline", resume_water_change),
-        ("log_water_change", "mdi:calendar-check", log_water_change),
-    ]
+    # Feed/water-change buttons only exist for tanks with pause/resume
+    # hardware — a lights-only entry gets just its light buttons.
+    buttons = []
+    if tank.has_equipment:
+        buttons += [
+            ("start_feed", "mdi:food-drumstick", start_feed),
+            ("feed_until_stop", "mdi:infinity", feed_until_stop),
+            ("stop_feed", "mdi:stop-circle-outline", stop_feed),
+            ("start_water_change", "mdi:water-sync", start_water_change),
+            ("resume_water_change", "mdi:play-circle-outline", resume_water_change),
+            ("log_water_change", "mdi:calendar-check", log_water_change),
+        ]
 
     if tank.lights is not None:
         lights = tank.lights

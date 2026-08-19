@@ -18,7 +18,8 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     tank: TankData = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([TrackedDevicesText(tank)])
+    if tank.has_equipment:
+        async_add_entities([TrackedDevicesText(tank)])
 
 
 class TrackedDevicesText(FeedAndWaterEntity, RestoreEntity, TextEntity):

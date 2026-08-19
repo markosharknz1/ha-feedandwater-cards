@@ -2,6 +2,13 @@
   "config": {
     "step": {
       "user": {
+        "title": "What do you want to add?",
+        "menu_options": {
+          "tank": "A tank (feed mode, water changes, lights…)",
+          "light": "Just a light timer"
+        }
+      },
+      "tank": {
         "title": "New tank",
         "description": "Give your tank a name. In the next step you'll pick which pumps, wavemakers, and skimmer belong to it.",
         "data": {
@@ -11,6 +18,20 @@
         "data_description": {
           "name": "Shown on your dashboards — e.g. \"Main Display Tank\".",
           "slug": "Leave blank and it's created from the tank name automatically. This short word starts every entity ID for this tank (e.g. \"reef\" gives button.reef_start_feed) so multiple tanks never clash. Lowercase letters, numbers, and underscores only, starting with a letter."
+        }
+      },
+      "light": {
+        "title": "New light timer",
+        "description": "A tap-to-run timer for lights (or anything switchable — e.g. a smart plug running LED strips). Add as many of these as you like, one per light circuit.",
+        "data": {
+          "name": "Name",
+          "slug": "Entity ID prefix (optional)",
+          "lights": "Light(s)"
+        },
+        "data_description": {
+          "name": "Shown on your dashboards — e.g. \"Stand Lights\".",
+          "slug": "Leave blank and it's created from the name automatically.",
+          "lights": "The switch, light, or fan entities this timer controls together. The Light timer slider sets how long they stay on; 0 keeps them on until you tap Lights off."
         }
       },
       "hardware": {

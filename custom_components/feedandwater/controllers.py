@@ -106,6 +106,15 @@ class TankData:
     def slug(self) -> str:
         return self.entry.data[CONF_SLUG]
 
+    @property
+    def has_equipment(self) -> bool:
+        """Whether any pause/resume hardware is configured — gates the
+        feed and water-change features (a lights-only entry has none)."""
+        return any(
+            self.option_entities(key)
+            for key in (CONF_WAVEMAKERS, CONF_SKIMMERS, CONF_RETURN_PUMPS)
+        )
+
     def option_entities(self, key: str) -> list[str]:
         value = self.entry.options.get(key) or []
         if isinstance(value, str):

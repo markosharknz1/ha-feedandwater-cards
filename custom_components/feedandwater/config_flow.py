@@ -53,14 +53,17 @@ LIGHTS_SELECTOR = selector.EntitySelector(
 def _hardware_schema(current: dict[str, Any]) -> vol.Schema:
     """Hardware pickers, pre-filled with current values when re-shown by
     the OptionsFlow."""
+    # All equipment is optional: a "tank" can be as small as a single light
+    # on a plug (lights-only entry) — features whose hardware is absent
+    # simply don't create their entities.
     schema: dict[Any, Any] = {
-        vol.Required(
+        vol.Optional(
             CONF_WAVEMAKERS, default=current.get(CONF_WAVEMAKERS, [])
         ): ON_OFF_SELECTOR,
-        vol.Required(
+        vol.Optional(
             CONF_SKIMMERS, default=current.get(CONF_SKIMMERS, [])
         ): ON_OFF_SELECTOR,
-        vol.Required(
+        vol.Optional(
             CONF_RETURN_PUMPS, default=current.get(CONF_RETURN_PUMPS, [])
         ): ON_OFF_SELECTOR,
         vol.Optional(
@@ -83,7 +86,9 @@ def _hardware_schema(current: dict[str, Any]) -> vol.Schema:
 
 
 class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Two-step flow: identity, then hardware."""
+    """Menu flow: a full tank (identity -> hardware), or a standalone
+    light timer (one small form) — the latter repeatable for as many
+    light circuits as wanted."""
 
     VERSION = 1
 
@@ -94,29 +99,68 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="user", menu_options=["tank", "light"])
+
+    def _resolve_identity(
+        self, user_input: dict[str, Any], errors: dict[str, str]
+    ) -> str | None:
+        """Validate name+optional slug; returns the slug or records an error."""
+        name = user_input["name"].strip()
+        slug = (user_input.get(CONF_SLUG) or "").strip().lower()
+        if not slug:
+            slug = slugify_name(name)
+        if not valid_slug(slug):
+            errors[CONF_SLUG] = "invalid_slug"
+            return None
+        self._name = name
+        return slug
+
+    async def async_step_tank(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            name = user_input["name"].strip()
-            # Prefix is optional — derive it from the tank name when blank,
-            # so non-technical users never have to know what a slug is.
-            slug = (user_input.get(CONF_SLUG) or "").strip().lower()
-            if not slug:
-                slug = slugify_name(name)
-            if not valid_slug(slug):
-                errors[CONF_SLUG] = "invalid_slug"
-            else:
+            slug = self._resolve_identity(user_input, errors)
+            if slug is not None:
                 await self.async_set_unique_id(slug)
                 self._abort_if_unique_id_configured()
-                self._name = name
                 self._slug = slug
                 return await self.async_step_hardware()
 
         return self.async_show_form(
-            step_id="user",
+            step_id="tank",
             data_schema=vol.Schema(
                 {
                     vol.Required("name"): str,
                     vol.Optional(CONF_SLUG): str,
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_light(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Standalone light timer: name + the light(s), done."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            slug = self._resolve_identity(user_input, errors)
+            if slug is not None:
+                await self.async_set_unique_id(slug)
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(
+                    title=self._name or slug,
+                    data={CONF_SLUG: slug},
+                    options={CONF_LIGHTS: user_input[CONF_LIGHTS]},
+                )
+
+        return self.async_show_form(
+            step_id="light",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("name"): str,
+                    vol.Optional(CONF_SLUG): str,
+                    vol.Required(CONF_LIGHTS): LIGHTS_SELECTOR,
                 }
             ),
             errors=errors,

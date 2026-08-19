@@ -30,12 +30,16 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     tank: TankData = hass.data[DOMAIN][entry.entry_id]
-    entities: list[SensorEntity] = [
-        FeedStageSensor(tank),
-        WaterChangeStageSensor(tank),
-        LastWaterChangeSensor(tank),
-        OffDurationsSensor(tank),
-    ]
+    entities: list[SensorEntity] = []
+    if tank.has_equipment:
+        # Feed/water-change stages and device tracking belong to real
+        # tanks — a lights-only entry stays lean.
+        entities += [
+            FeedStageSensor(tank),
+            WaterChangeStageSensor(tank),
+            LastWaterChangeSensor(tank),
+            OffDurationsSensor(tank),
+        ]
     if tank.lights is not None:
         entities.append(LightStageSensor(tank))
     if tank.monitored_speed_entities():

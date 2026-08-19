@@ -107,9 +107,12 @@ function discoverTanks(hass, slugFilter) {
     for (const entityId of Object.keys(hass.states)) add(entityId, null);
   }
 
-  // A tank must have its own start_feed button — filters out lookalike
-  // entities from the manual-YAML flavor of this pack.
-  const result = [...tanks.values()].filter((t) => t.entities.start_feed);
+  // A tank must have its own start_feed button (full tank) or lights_on
+  // button (standalone light timer) — filters out lookalike entities from
+  // the manual-YAML flavor of this pack.
+  const result = [...tanks.values()].filter(
+    (t) => t.entities.start_feed || t.entities.lights_on
+  );
   for (const t of result) if (!t.name) t.name = t.slug;
   result.sort((a, b) => a.name.localeCompare(b.name));
   return result;
@@ -251,17 +254,21 @@ class FeedAndWaterCard extends HTMLElement {
     const feedState = feed ? feed.state : "idle";
     const chips = [];
 
-    if (feedState !== "idle") {
-      chips.push({ label: "Stop Feeding", icon: "■", cls: "stop", act: "stop_feed" });
-    } else if (wcState === "idle") {
-      chips.push({ label: "Feed", icon: "🍤", cls: "go", act: "start_feed" });
-      chips.push({ label: "Until I Stop", icon: "∞", cls: "alt", act: "feed_until_stop" });
+    if (tank.entities.start_feed) {
+      if (feedState !== "idle") {
+        chips.push({ label: "Stop Feeding", icon: "■", cls: "stop", act: "stop_feed" });
+      } else if (wcState === "idle") {
+        chips.push({ label: "Feed", icon: "🍤", cls: "go", act: "start_feed" });
+        chips.push({ label: "Until I Stop", icon: "∞", cls: "alt", act: "feed_until_stop" });
+      }
     }
 
-    if (wcState === "paused") {
-      chips.push({ label: "Resume", icon: "▶", cls: "go", act: "resume_water_change" });
-    } else if (wcState === "idle" && feedState === "idle") {
-      chips.push({ label: "Water Change", icon: "💧", cls: "alt", act: "start_water_change" });
+    if (tank.entities.start_water_change) {
+      if (wcState === "paused") {
+        chips.push({ label: "Resume", icon: "▶", cls: "go", act: "resume_water_change" });
+      } else if (wcState === "idle" && feedState === "idle") {
+        chips.push({ label: "Water Change", icon: "💧", cls: "alt", act: "start_water_change" });
+      }
     }
     // While a staged restart runs there is deliberately nothing to tap.
 
@@ -369,18 +376,22 @@ class FeedAndWaterCard extends HTMLElement {
                   </div>`;
               })
               .join("");
-            const last = this._state(tank, "last_water_change");
-            const lastText =
-              last && last.state && !["unknown", "unavailable"].includes(last.state)
-                ? new Date(last.state).toLocaleString()
-                : "never logged";
-            drawer = `<div class="drawer">
-                ${sliders}
-                <div class="drawer-foot">
+            let foot = "";
+            if (tank.entities.log_water_change) {
+              const last = this._state(tank, "last_water_change");
+              const lastText =
+                last && last.state && !["unknown", "unavailable"].includes(last.state)
+                  ? new Date(last.state).toLocaleString()
+                  : "never logged";
+              foot = `<div class="drawer-foot">
                   <span>Last water change: ${lastText}</span>
                   <button class="link" data-slug="${tank.slug}" data-act="log_water_change">
                     Log water change now</button>
-                </div>
+                </div>`;
+            }
+            drawer = `<div class="drawer">
+                ${sliders}
+                ${foot}
               </div>`;
           }
           // At-a-glance pump speeds line (only when the tank monitors any)
@@ -469,7 +480,10 @@ class FeedAndWaterDevicesCard extends HTMLElement {
     if (!this._config) return;
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     const hass = this._hass;
-    const tanks = discoverTanks(hass, this._config.tanks);
+    // Only tanks that actually have device tracking (not light timers)
+    const tanks = discoverTanks(hass, this._config.tanks).filter(
+      (t) => t.entities.tracked_devices
+    );
 
     const style = `
       <style>
