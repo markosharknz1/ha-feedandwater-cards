@@ -33,7 +33,8 @@ VALUE_LIGHT_TIMER = "light_timer"
 
 # (default, min, max, step, unit) per number entity
 NUMBER_SPECS: dict[str, tuple[float, float, float, float, str]] = {
-    VALUE_FEED_DURATION: (20, 1, 60, 1, "min"),
+    # 5-min increments, same feel as the light timer slider
+    VALUE_FEED_DURATION: (20, 5, 60, 5, "min"),
     VALUE_RETURN_PUMP_FEED_SPEED: (30, 0, 100, 5, "%"),
     VALUE_SKIMMER_EXTRA_OFF: (10, 0, 30, 1, "min"),
     VALUE_WAVEMAKER_RESTART_DELAY: (5, 0, 30, 1, "min"),

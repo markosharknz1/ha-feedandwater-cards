@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 _LOGGER = logging.getLogger(__name__)
 
 CARD_URL = "/feedandwater/feedandwater-card.js"
-CARD_VERSION = "0.7.1"  # bump to bust the browser cache when the card changes
+CARD_VERSION = "0.7.2"  # bump to bust the browser cache when the card changes
 
 _CARD_REGISTERED_KEY = "feedandwater_card_registered"
 
@@ -91,11 +91,27 @@ async def _register_lovelace_resource(hass: HomeAssistant) -> bool:
             await resources.async_load()
             resources.loaded = True
 
-        for item in resources.async_items():
-            if str(item.get("url", "")).split("?")[0] == CARD_URL:
-                if item.get("url") != url and item.get("id"):
-                    await resources.async_update_item(item["id"], {"url": url})
-                return True
+        matches = [
+            item
+            for item in resources.async_items()
+            if str(item.get("url", "")).split("?")[0] == CARD_URL
+        ]
+        if matches:
+            first = matches[0]
+            if first.get("url") != url and first.get("id"):
+                await resources.async_update_item(first["id"], {"url": url})
+            # Duplicate entries (e.g. one added by hand before auto-
+            # registration existed) keep serving a stale cached copy of the
+            # card — whichever file loads first claims the custom-element
+            # names, so newer cards never appear in the picker. Remove them.
+            for extra in matches[1:]:
+                if extra.get("id"):
+                    await resources.async_delete_item(extra["id"])
+                    _LOGGER.info(
+                        "Removed duplicate Reef Feed & Water card resource %s",
+                        extra.get("url"),
+                    )
+            return True
 
         await resources.async_create_item({"res_type": "module", "url": url})
         return True
