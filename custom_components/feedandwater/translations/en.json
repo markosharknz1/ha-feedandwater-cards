@@ -6,8 +6,23 @@
         "menu_options": {
           "tank": "A tank (feed mode, water changes, lights…)",
           "light": "Just a light timer",
+          "speeds": "A Speed card (pump readouts + off timers)",
           "maintenance": "A maintenance task (fleece roll, ATO reset…)",
           "redsea": "A RedSea task (ReefMat fleece / ATO reset)"
+        }
+      },
+      "speeds": {
+        "title": "New Speed card entry",
+        "description": "Pumps to watch and control on the Speed card — each shows its speed (or on/off for a plug) with an Off button and an off-for-X-minutes timer. Add as many of these entries as you like.",
+        "data": {
+          "name": "Name",
+          "slug": "Entity ID prefix (optional)",
+          "speed_displays": "Pump(s)"
+        },
+        "data_description": {
+          "name": "Shown on the card — e.g. \"Display Tank Pumps\".",
+          "slug": "Leave blank and it's created from the name automatically.",
+          "speed_displays": "Number/fan entities show their speed; plain switches (e.g. a pump on a TP-Link Tapo plug) show on/off. Every pump gets the card's Off button and timer."
         }
       },
       "tank": {

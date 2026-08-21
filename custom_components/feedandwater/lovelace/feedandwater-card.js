@@ -110,10 +110,15 @@ function discoverTanks(hass, slugFilter) {
   }
 
   // An entry must have its own start_feed button (full tank), lights_on
-  // button (light timer), or done button (maintenance task) — filters out
-  // lookalike entities from the manual-YAML flavor of this pack.
+  // button (light timer), done button (maintenance task), or pump_speeds
+  // sensor (standalone Speed card entry) — filters out lookalike entities
+  // from the manual-YAML flavor of this pack.
   const result = [...tanks.values()].filter(
-    (t) => t.entities.start_feed || t.entities.lights_on || t.entities.done
+    (t) =>
+      t.entities.start_feed ||
+      t.entities.lights_on ||
+      t.entities.done ||
+      t.entities.pump_speeds
   );
   for (const t of result) if (!t.name) t.name = t.slug;
   result.sort((a, b) => a.name.localeCompare(b.name));
@@ -902,9 +907,7 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
               const value = !r.on
                 ? "off"
                 : r.value === null
-                  ? r.entity_id.startsWith("switch.")
-                    ? "on"
-                    : "?"
+                  ? "on"
                   : Math.round(r.value) + r.unit;
               let controls = "";
               if (r.controllable) {
@@ -942,9 +945,10 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
                 </div>`;
             })
             .join("")
-        : `<div class="empty">No pump speeds to show — add speed controls or
-            Speed display(s) in a tank's Configure dialog, then pick pumps in
-            this card's editor.</div>`;
+        : `<div class="empty">No pumps to show yet. Go to Settings →
+            Devices &amp; Services → Add Integration → Reef Feed &amp; Water →
+            "A Speed card" and pick your pumps (or add Speed display(s) in a
+            tank's Configure dialog).</div>`;
     }
 
     const heading = this._config.title
@@ -1046,7 +1050,7 @@ class FeedAndWaterSpeedsCardEditor extends HTMLElement {
       <div class="wrap">
         <label>Title (optional)
           <input type="text" id="title" value="${(this._config.title || "").replace(/"/g, "&quot;")}"></label>
-        <div>Pumps shown ${pumps.length ? "" : "<span class='hint'>(none monitored yet — add speed controls or Speed displays in a tank's Configure dialog)</span>"}</div>
+        <div>Pumps shown ${pumps.length ? "" : "<span class='hint'>(none monitored yet — Settings → Devices &amp; Services → Add Integration → Reef Feed &amp; Water → \"A Speed card\")</span>"}</div>
         ${rows}
         <div class="hint">Untick pumps to hide them; type a Label to rename a
           pump on the card (e.g. "Return Pump" instead of the device name).</div>

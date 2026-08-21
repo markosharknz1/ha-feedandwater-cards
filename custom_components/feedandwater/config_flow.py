@@ -134,7 +134,8 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         return self.async_show_menu(
-            step_id="user", menu_options=["tank", "light", "maintenance", "redsea"]
+            step_id="user",
+            menu_options=["tank", "light", "speeds", "maintenance", "redsea"],
         )
 
     async def async_step_redsea(
@@ -204,6 +205,36 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
                     vol.Required("name"): str,
                     vol.Optional(CONF_SLUG): str,
                     vol.Required(CONF_LIGHTS): LIGHTS_SELECTOR,
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_speeds(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Standalone Speed-card entry: name + the pumps to monitor, done.
+        Same shape as a light timer — repeatable, and expandable into a
+        full tank later via its Configure dialog."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            slug = self._resolve_identity(user_input, errors)
+            if slug is not None:
+                await self.async_set_unique_id(slug)
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(
+                    title=self._name or slug,
+                    data={CONF_SLUG: slug},
+                    options={CONF_SPEED_DISPLAYS: user_input[CONF_SPEED_DISPLAYS]},
+                )
+
+        return self.async_show_form(
+            step_id="speeds",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("name", default="Speeds"): str,
+                    vol.Optional(CONF_SLUG): str,
+                    vol.Required(CONF_SPEED_DISPLAYS): SPEED_CARD_SELECTOR,
                 }
             ),
             errors=errors,
