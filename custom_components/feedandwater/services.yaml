@@ -1,0 +1,35 @@
+pause_pump:
+  name: Pause a pump
+  description: >-
+    Turn one monitored pump off, optionally turning it back on automatically
+    after a number of minutes. The pump must be a speed control or Speed
+    display of a Reef Feed & Water tank.
+  fields:
+    entity_id:
+      name: Pump
+      description: The pump's fan entity.
+      required: true
+      selector:
+        entity:
+          domain: fan
+    minutes:
+      name: Minutes
+      description: Auto turn-back-on after this many minutes (0 = stay off until resumed).
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 120
+          unit_of_measurement: min
+
+resume_pump:
+  name: Resume a pump
+  description: Turn a paused pump back on and cancel its pause timer.
+  fields:
+    entity_id:
+      name: Pump
+      description: The pump's fan entity.
+      required: true
+      selector:
+        entity:
+          domain: fan

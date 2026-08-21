@@ -189,12 +189,13 @@ class LightStageSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
             )
 
 
-class PumpSpeedsSensor(FeedAndWaterEntity, SensorEntity):
+class PumpSpeedsSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
     """At-a-glance speeds for every monitored pump (feed-mode speed
     controls + display-only additions). Event-driven: updates the instant
     any underlying speed changes. State = number of readable pumps;
-    per-pump details live in the `speeds` attribute for the card and for
-    markdown tables."""
+    per-pump details live in the `speeds` attribute, and the Speed card's
+    per-pump pause timers persist through the `paused` attribute (restored
+    after HA restarts, overdue resumes running immediately)."""
 
     _attr_icon = "mdi:speedometer"
     _attr_native_unit_of_measurement = "pumps"
@@ -233,7 +234,13 @@ class PumpSpeedsSensor(FeedAndWaterEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return {"speeds": self._speeds}
+        return {
+            "speeds": self._speeds,
+            "paused": {
+                entity_id: _iso(resume_at)
+                for entity_id, resume_at in self.tank.pump_pauses.items()
+            },
+        }
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -248,6 +255,14 @@ class PumpSpeedsSensor(FeedAndWaterEntity, SensorEntity):
                 self.hass, self.tank.monitored_speed_entities(), _changed
             )
         )
+        self.async_on_remove(
+            self.tank.pump_pause_listeners.async_add_listener(self.async_write_ha_state)
+        )
+        last = await self.async_get_last_state()
+        if last is not None and not self.tank.pump_pauses:
+            paused = last.attributes.get("paused") or {}
+            if paused:
+                await self.tank.async_restore_pump_pauses(paused)
 
 
 class MaintenanceSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):

@@ -94,6 +94,11 @@ class TankData:
     last_water_change_listeners: _Notifier = field(default_factory=_Notifier)
     maintenance_last_done: datetime | None = None
     maintenance_done_listeners: _Notifier = field(default_factory=_Notifier)
+    # Per-pump pause timers (Speed card: "off for X minutes, then back on";
+    # None = off until resumed manually)
+    pump_pauses: dict[str, datetime | None] = field(default_factory=dict)
+    pump_pause_listeners: _Notifier = field(default_factory=_Notifier)
+    _pump_pause_unsubs: dict[str, Callable[[], None]] = field(default_factory=dict)
     feed: "FeedController" = field(init=False)
     water: "WaterChangeController" = field(init=False)
     power: "PowerLossController | None" = field(init=False, default=None)
@@ -202,6 +207,57 @@ class TankData:
         self.last_water_change = dt_util.utcnow()
         self.last_water_change_listeners._notify()
 
+    # --- Speed-card pump pauses -----------------------------------------
+
+    def _cancel_pump_timer(self, entity_id: str) -> None:
+        unsub = self._pump_pause_unsubs.pop(entity_id, None)
+        if unsub:
+            unsub()
+
+    async def async_pause_pump(self, entity_id: str, minutes: float) -> None:
+        """Turn one monitored pump off; minutes > 0 schedules the automatic
+        turn-back-on, 0 keeps it off until resumed manually."""
+        self._cancel_pump_timer(entity_id)
+        await self.async_turn("turn_off", [entity_id])
+        resume_at = (
+            dt_util.utcnow() + timedelta(minutes=minutes) if minutes > 0 else None
+        )
+        self.pump_pauses[entity_id] = resume_at
+        if resume_at is not None:
+            self._schedule_pump_resume(entity_id, resume_at)
+        self.pump_pause_listeners._notify()
+
+    async def async_resume_pump(self, entity_id: str) -> None:
+        self._cancel_pump_timer(entity_id)
+        self.pump_pauses.pop(entity_id, None)
+        await self.async_turn("turn_on", [entity_id])
+        self.pump_pause_listeners._notify()
+
+    def _schedule_pump_resume(self, entity_id: str, resume_at: datetime) -> None:
+        async def _fire(_now: datetime) -> None:
+            self._pump_pause_unsubs.pop(entity_id, None)
+            await self.async_resume_pump(entity_id)
+
+        self._pump_pause_unsubs[entity_id] = async_track_point_in_time(
+            self.hass, _fire, resume_at
+        )
+
+    async def async_restore_pump_pauses(self, paused: dict[str, Any]) -> None:
+        """Rebuild pause timers after an HA restart (same overdue-runs-now,
+        future-reschedules contract as the other controllers)."""
+        now = dt_util.utcnow()
+        for entity_id, iso in paused.items():
+            if entity_id not in self.monitored_speed_entities():
+                continue
+            resume_at = dt_util.parse_datetime(str(iso)) if iso else None
+            if resume_at is not None and resume_at <= now:
+                await self.async_resume_pump(entity_id)
+            else:
+                self.pump_pauses[entity_id] = resume_at
+                if resume_at is not None:
+                    self._schedule_pump_resume(entity_id, resume_at)
+        self.pump_pause_listeners._notify()
+
     @callback
     def async_shutdown(self) -> None:
         self.feed.async_shutdown()
@@ -210,6 +266,8 @@ class TankData:
             self.power.async_shutdown()
         if self.lights:
             self.lights.async_shutdown()
+        for entity_id in list(self._pump_pause_unsubs):
+            self._cancel_pump_timer(entity_id)
 
 
 class FeedController(_Notifier):

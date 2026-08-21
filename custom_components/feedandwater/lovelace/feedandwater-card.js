@@ -305,7 +305,7 @@ class FeedAndWaterCard extends HTMLElement {
 
     const style = `
       <style>
-        ha-card { padding: 12px 16px; }
+        ha-card { padding: 12px 16px; height: 100%; box-sizing: border-box; }
         .heading { font-size: 1.1em; font-weight: 500; margin-bottom: 8px; }
         .tank { padding: 8px 0; }
         .tank + .tank { border-top: 1px solid var(--divider-color); }
@@ -322,8 +322,8 @@ class FeedAndWaterCard extends HTMLElement {
         .speeds b { color: var(--primary-text-color); font-weight: 500; }
         .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
         .chip { display: inline-flex; align-items: center; gap: 6px;
-                border-radius: 16px; padding: 5px 14px; cursor: pointer;
-                font: inherit; font-size: 0.9em; border: 1px solid var(--divider-color);
+                border-radius: 16px; padding: 6px 16px; cursor: pointer;
+                font: inherit; font-size: 0.92em; border: 1px solid var(--divider-color);
                 background: var(--secondary-background-color);
                 color: var(--primary-text-color); }
         .chip.go { background: var(--primary-color); color: var(--text-primary-color, #fff);
@@ -343,7 +343,7 @@ class FeedAndWaterCard extends HTMLElement {
         .slider-row .val { flex: 0 0 4.5em; text-align: right; }
         /* Inline feed-timer slider on the tank row (drawer sliders keep
            their wide fixed labels) */
-        .tank > .slider-row { margin-top: 6px; }
+        .tank > .slider-row { margin-top: 8px; }
         .tank > .slider-row label { flex: 0 0 auto; }
         .tank > .slider-row .val { flex: 0 0 5.5em; }
         .drawer-foot { display: flex; align-items: center; justify-content: space-between;
@@ -513,7 +513,7 @@ class FeedAndWaterDevicesCard extends HTMLElement {
 
     const style = `
       <style>
-        ha-card { padding: 12px 16px; }
+        ha-card { padding: 12px 16px; height: 100%; box-sizing: border-box; }
         .heading { font-size: 1.1em; font-weight: 500; margin-bottom: 8px; }
         .tank + .tank { border-top: 1px solid var(--divider-color); margin-top: 10px; padding-top: 10px; }
         .name { font-weight: 500; margin-bottom: 6px; }
@@ -659,7 +659,7 @@ class FeedAndWaterLightsCard extends HTMLElement {
 
     const style = `
       <style>
-        ha-card { padding: 12px 16px; }
+        ha-card { padding: 12px 16px; height: 100%; box-sizing: border-box; }
         .heading { font-size: 1.1em; font-weight: 500; margin-bottom: 8px; }
         .tank + .tank { border-top: 1px solid var(--divider-color); margin-top: 10px; padding-top: 10px; }
         .row { display: flex; align-items: center; gap: 8px; }
@@ -755,10 +755,12 @@ class FeedAndWaterLightsCard extends HTMLElement {
 }
 
 class FeedAndWaterSpeedsCard extends HTMLElement {
-  /* Speeds card: big per-pump speed readouts, filterable to exactly the
-   * pumps you care about (e.g. just the wavemakers). Data comes from each
-   * tank's pump_speeds sensor; which pumps exist there is controlled by
-   * the tank's speed-control / speed-display config. */
+  /* Speed card: per-pump speed readouts with controls. Fan-type pumps
+   * (power+speed combined) get an Off/On button plus a drag timer — off
+   * for X minutes then back on automatically, 0 = off until resumed —
+   * backed by the integration's pause_pump/resume_pump services so timers
+   * survive HA restarts. Pumps are filterable and relabelable in the
+   * card's editor. */
 
   static getConfigElement() {
     return document.createElement("feedandwater-speeds-card-editor");
@@ -770,31 +772,61 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
 
   setConfig(config) {
     this._config = config || {};
+    this._timers = this._timers || {}; // entity_id -> chosen off-minutes
     this._render();
   }
 
   set hass(hass) {
     this._hass = hass;
     this._render();
+    this._syncTicker();
   }
 
   getCardSize() {
     return 2;
   }
 
+  disconnectedCallback() {
+    if (this._tick) {
+      clearInterval(this._tick);
+      this._tick = null;
+    }
+  }
+
+  _syncTicker() {
+    const active = this._rows().some((r) => r.pausedUntil);
+    if (active && !this._tick) {
+      this._tick = setInterval(() => this._render(), 1000);
+    } else if (!active && this._tick) {
+      clearInterval(this._tick);
+      this._tick = null;
+    }
+  }
+
   _rows() {
+    if (!this._hass || !this._config) return [];
     const want =
       this._config.entities && this._config.entities.length
         ? new Set(this._config.entities)
         : null;
+    const labels = this._config.labels || {};
     const rows = [];
     for (const tank of discoverTanks(this._hass, this._config.tanks)) {
       const sensor = tank.entities.pump_speeds
         ? this._hass.states[tank.entities.pump_speeds]
         : null;
-      for (const s of (sensor && sensor.attributes.speeds) || []) {
+      if (!sensor) continue;
+      const paused = sensor.attributes.paused || {};
+      for (const s of sensor.attributes.speeds || []) {
         if (want && !want.has(s.entity_id)) continue;
-        rows.push({ tank: tank.name, ...s });
+        rows.push({
+          tank: tank.name,
+          ...s,
+          name: labels[s.entity_id] || s.name,
+          isPaused: s.entity_id in paused,
+          pausedUntil: paused[s.entity_id] || null,
+          controllable: s.entity_id.startsWith("fan."),
+        });
       }
     }
     return rows;
@@ -807,14 +839,29 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
 
     const style = `
       <style>
-        ha-card { padding: 12px 16px; }
+        ha-card { padding: 12px 16px; height: 100%; box-sizing: border-box; }
         .heading { font-size: 1.1em; font-weight: 500; margin-bottom: 8px; }
-        .row { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; }
-        .row + .row { border-top: 1px solid var(--divider-color); }
+        .prow { padding: 8px 0; }
+        .prow + .prow { border-top: 1px solid var(--divider-color); }
+        .top { display: flex; align-items: baseline; gap: 10px; }
         .pump { font-weight: 500; }
         .tank { color: var(--secondary-text-color); font-size: 0.85em; }
         .value { margin-left: auto; font-size: 1.35em; font-weight: 500; }
         .value.off { color: var(--secondary-text-color); font-size: 1em; }
+        .controls { display: flex; align-items: center; gap: 10px; margin-top: 8px;
+                    font-size: 0.9em; }
+        .controls label { flex: none; color: var(--secondary-text-color); }
+        .controls input[type=range] { flex: 1; }
+        .controls .val { flex: 0 0 5.5em; text-align: right;
+                         color: var(--secondary-text-color); }
+        .chip { display: inline-flex; align-items: center; gap: 6px;
+                border-radius: 16px; padding: 6px 16px; cursor: pointer;
+                font: inherit; font-size: 0.92em; border: 1px solid var(--divider-color);
+                background: var(--secondary-background-color);
+                color: var(--primary-text-color); flex: none; }
+        .chip.go { background: var(--primary-color); color: var(--text-primary-color, #fff);
+                   border-color: var(--primary-color); }
+        .paused-note { color: var(--secondary-text-color); font-size: 0.9em; flex: 1; }
         .empty { color: var(--secondary-text-color); font-size: 0.9em; padding: 4px 0; }
       </style>`;
 
@@ -825,15 +872,43 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
       const rows = this._rows();
       body = rows.length
         ? rows
-            .map(
-              (r) => `<div class="row">
-                <span class="pump">${r.name}</span>
-                <span class="tank">${r.tank}</span>
-                <span class="value ${r.on ? "" : "off"}">${
-                  !r.on ? "off" : r.value === null ? "?" : Math.round(r.value) + r.unit
-                }</span>
-              </div>`
-            )
+            .map((r) => {
+              const value = !r.on
+                ? "off"
+                : r.value === null
+                  ? "?"
+                  : Math.round(r.value) + r.unit;
+              let controls = "";
+              if (r.controllable) {
+                if (r.isPaused) {
+                  const note = r.pausedUntil
+                    ? `back on in ${fmtRemaining(r.pausedUntil) || "…"}`
+                    : "off until turned on";
+                  controls = `<div class="controls">
+                      <span class="paused-note">${note}</span>
+                      <button class="chip go" data-eid="${r.entity_id}" data-act="resume">On</button>
+                    </div>`;
+                } else {
+                  const minutes = this._timers[r.entity_id] || 0;
+                  const valText = minutes === 0 ? "until on" : `${minutes} min`;
+                  controls = `<div class="controls">
+                      <label>Off timer</label>
+                      <input type="range" min="0" max="60" step="5" value="${minutes}"
+                        data-eid="${r.entity_id}" data-timer="1">
+                      <span class="val">${valText}</span>
+                      <button class="chip" data-eid="${r.entity_id}" data-act="pause">Off</button>
+                    </div>`;
+                }
+              }
+              return `<div class="prow">
+                  <div class="top">
+                    <span class="pump">${r.name}</span>
+                    <span class="tank">${r.tank}</span>
+                    <span class="value ${r.on ? "" : "off"}">${value}</span>
+                  </div>
+                  ${controls}
+                </div>`;
+            })
             .join("")
         : `<div class="empty">No pump speeds to show — add speed controls or
             Speed display(s) in a tank's Configure dialog, then pick pumps in
@@ -844,6 +919,26 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
       ? `<div class="heading">${this._config.title}</div>`
       : "";
     this.shadowRoot.innerHTML = `${style}<ha-card>${heading}${body}</ha-card>`;
+
+    this.shadowRoot.querySelectorAll("input[data-timer]").forEach((el) => {
+      el.addEventListener("change", () => {
+        this._timers[el.dataset.eid] = Number(el.value);
+        this._render();
+      });
+    });
+    this.shadowRoot.querySelectorAll("[data-act]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const eid = el.dataset.eid;
+        if (el.dataset.act === "pause") {
+          this._hass.callService("feedandwater", "pause_pump", {
+            entity_id: eid,
+            minutes: this._timers[eid] || 0,
+          });
+        } else {
+          this._hass.callService("feedandwater", "resume_pump", { entity_id: eid });
+        }
+      });
+    });
   }
 }
 
@@ -876,6 +971,8 @@ class FeedAndWaterSpeedsCardEditor extends HTMLElement {
     if (this._config.title) config.title = this._config.title;
     if (this._config.entities && this._config.entities.length)
       config.entities = this._config.entities;
+    if (this._config.labels && Object.keys(this._config.labels).length)
+      config.labels = this._config.labels;
     this.dispatchEvent(
       new CustomEvent("config-changed", {
         detail: { config },
@@ -891,12 +988,16 @@ class FeedAndWaterSpeedsCardEditor extends HTMLElement {
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     const pumps = this._hass ? this._monitored() : [];
     const selected = new Set(this._config.entities || []);
+    const labels = this._config.labels || {};
     const rows = pumps
       .map(
-        (p) => `<label class="pump-row">
+        (p) => `<div class="pump-row">
           <input type="checkbox" value="${p.entity_id}"
             ${!selected.size || selected.has(p.entity_id) ? "checked" : ""}>
-          ${p.name} <span class="hint">(${p.tank})</span></label>`
+          <span class="pname">${p.name} <span class="hint">(${p.tank})</span></span>
+          <input type="text" class="label-input" data-eid="${p.entity_id}"
+            placeholder="Label" value="${(labels[p.entity_id] || "").replace(/"/g, "&quot;")}">
+        </div>`
       )
       .join("");
     this.shadowRoot.innerHTML = `
@@ -904,17 +1005,19 @@ class FeedAndWaterSpeedsCardEditor extends HTMLElement {
         .wrap { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
         .hint { color: var(--secondary-text-color); font-size: 0.88em; }
         .pump-row { display: flex; align-items: center; gap: 8px; }
+        .pname { flex: 1; min-width: 0; }
         input[type=text] { padding: 6px 8px; font: inherit;
           background: var(--card-background-color); color: var(--primary-text-color);
           border: 1px solid var(--divider-color); border-radius: 4px; }
+        .label-input { flex: 0 0 10em; }
       </style>
       <div class="wrap">
         <label>Title (optional)
-          <input type="text" id="title" value="${this._config.title || ""}"></label>
+          <input type="text" id="title" value="${(this._config.title || "").replace(/"/g, "&quot;")}"></label>
         <div>Pumps shown ${pumps.length ? "" : "<span class='hint'>(none monitored yet — add speed controls or Speed displays in a tank's Configure dialog)</span>"}</div>
         ${rows}
-        <div class="hint">Untick pumps to hide them — e.g. keep only the
-          wavemakers ticked for a wavemaker-speeds card.</div>
+        <div class="hint">Untick pumps to hide them; type a Label to rename a
+          pump on the card (e.g. "Return Pump" instead of the device name).</div>
       </div>`;
 
     this.shadowRoot.getElementById("title").addEventListener("input", (ev) => {
@@ -927,6 +1030,15 @@ class FeedAndWaterSpeedsCardEditor extends HTMLElement {
           .filter((c) => c.checked)
           .map((c) => c.value);
         this._config.entities = checked.length === pumps.length ? [] : checked;
+        this._emit();
+      });
+    });
+    this.shadowRoot.querySelectorAll(".label-input").forEach((el) => {
+      el.addEventListener("input", () => {
+        const labels = { ...(this._config.labels || {}) };
+        if (el.value.trim()) labels[el.dataset.eid] = el.value.trim();
+        else delete labels[el.dataset.eid];
+        this._config.labels = labels;
         this._emit();
       });
     });
@@ -974,7 +1086,7 @@ class FeedAndWaterMaintenanceCard extends HTMLElement {
 
     const style = `
       <style>
-        ha-card { padding: 12px 16px; }
+        ha-card { padding: 12px 16px; height: 100%; box-sizing: border-box; }
         .heading { font-size: 1.1em; font-weight: 500; margin-bottom: 8px; }
         .task { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
         .task + .task { border-top: 1px solid var(--divider-color); }
@@ -1185,7 +1297,7 @@ window.customCards.push(
     type: "feedandwater-speeds-card",
     name: "Reef Feed & Water — Speeds",
     description:
-      "Big pump-speed readouts, filterable to exactly the pumps you want — e.g. just the wavemakers.",
+      "Per-pump speed readouts with Off/On controls and off-for-X-minutes timers, filterable and relabelable — e.g. just the wavemakers.",
   },
   {
     type: "feedandwater-maintenance-card",

@@ -34,7 +34,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await async_register_card(hass)
+    _async_register_services(hass)
     return True
+
+
+def _async_register_services(hass: HomeAssistant) -> None:
+    """Domain-wide services used by the Speed card's per-pump pause timers
+    (registered once, idempotent)."""
+    if hass.data.get("feedandwater_services_registered"):
+        return
+    hass.data["feedandwater_services_registered"] = True
+
+    def _find_tank(entity_id: str) -> TankData | None:
+        for tank in hass.data.get(DOMAIN, {}).values():
+            if isinstance(tank, TankData) and entity_id in tank.monitored_speed_entities():
+                return tank
+        return None
+
+    async def _pause_pump(call) -> None:
+        entity_id = call.data["entity_id"]
+        minutes = float(call.data.get("minutes", 0))
+        tank = _find_tank(entity_id)
+        if tank is None:
+            raise ValueError(
+                f"{entity_id} is not a monitored pump of any Reef Feed & Water tank"
+            )
+        await tank.async_pause_pump(entity_id, minutes)
+
+    async def _resume_pump(call) -> None:
+        entity_id = call.data["entity_id"]
+        tank = _find_tank(entity_id)
+        if tank is None:
+            raise ValueError(
+                f"{entity_id} is not a monitored pump of any Reef Feed & Water tank"
+            )
+        await tank.async_resume_pump(entity_id)
+
+    hass.services.async_register(DOMAIN, "pause_pump", _pause_pump)
+    hass.services.async_register(DOMAIN, "resume_pump", _resume_pump)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
