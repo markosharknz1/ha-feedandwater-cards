@@ -14,6 +14,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_point_in_time,
     async_track_state_change_event,
 )
@@ -99,6 +100,12 @@ class TankData:
     pump_pauses: dict[str, datetime | None] = field(default_factory=dict)
     pump_pause_listeners: _Notifier = field(default_factory=_Notifier)
     _pump_pause_unsubs: dict[str, Callable[[], None]] = field(default_factory=dict)
+    # Devices that didn't reach their commanded state (dead plug, lost
+    # WiFi, ...) — surfaced as warnings on the cards rather than silently
+    # trusting the command.
+    unresponsive: set[str] = field(default_factory=set)
+    unresponsive_listeners: _Notifier = field(default_factory=_Notifier)
+    _verify_unsubs: dict[object, Callable[[], None]] = field(default_factory=dict)
     feed: "FeedController" = field(init=False)
     water: "WaterChangeController" = field(init=False)
     power: "PowerLossController | None" = field(init=False, default=None)
@@ -154,13 +161,55 @@ class TankData:
             return [value]
         return list(value)
 
+    # How long after a command before checking the device actually obeyed —
+    # long enough for slow-polling plug integrations to report back.
+    VERIFY_DELAY_S = 15
+
     async def async_turn(self, service: str, entity_ids: list[str]) -> None:
         """homeassistant.turn_on/turn_off — domain-agnostic on purpose, the
-        same guarantee the blueprints give (switch and fan both work)."""
+        same guarantee the blueprints give (switch and fan both work).
+
+        Every command is verified ~15 s later: devices that never reached
+        the commanded state (dead plug, lost WiFi) land in
+        self.unresponsive and show as warnings on the cards."""
         if not entity_ids:
             return
         await self.hass.services.async_call(
             "homeassistant", service, {"entity_id": entity_ids}, blocking=True
+        )
+        self._schedule_turn_verify(entity_ids, expect_on=service == "turn_on")
+
+    def _schedule_turn_verify(self, entity_ids: list[str], expect_on: bool) -> None:
+        # Only stateful on/off domains can be verified this way (scripts,
+        # for example, return to "off" by design).
+        checkable = [
+            entity_id
+            for entity_id in entity_ids
+            if entity_id.split(".", 1)[0] in ("switch", "fan", "light")
+        ]
+        if not checkable:
+            return
+
+        token = object()
+
+        async def _check(_now: datetime) -> None:
+            self._verify_unsubs.pop(token, None)
+            expected = "on" if expect_on else "off"
+            changed = False
+            for entity_id in checkable:
+                state = self.hass.states.get(entity_id)
+                ok = state is not None and state.state == expected
+                if not ok and entity_id not in self.unresponsive:
+                    self.unresponsive.add(entity_id)
+                    changed = True
+                elif ok and entity_id in self.unresponsive:
+                    self.unresponsive.discard(entity_id)
+                    changed = True
+            if changed:
+                self.unresponsive_listeners._notify()
+
+        self._verify_unsubs[token] = async_call_later(
+            self.hass, self.VERIFY_DELAY_S, _check
         )
 
     async def async_set_speed(self, entity_id: str, value: float) -> None:
@@ -268,6 +317,9 @@ class TankData:
             self.lights.async_shutdown()
         for entity_id in list(self._pump_pause_unsubs):
             self._cancel_pump_timer(entity_id)
+        for unsub in self._verify_unsubs.values():
+            unsub()
+        self._verify_unsubs.clear()
 
 
 class FeedController(_Notifier):
@@ -572,6 +624,12 @@ class LightController(_Notifier):
     turned off manually). Tracks the real device states too, so a light
     toggled at the wall or in another card keeps the stage honest."""
 
+    # How long to wait before checking that a commanded on/off actually
+    # reached the device. Long enough for slow-polling plug integrations to
+    # report back; short enough that a dead plug (e.g. a Tapo that HA has
+    # lost) stops showing a phantom "On" within a reasonable time.
+    VERIFY_DELAY_S = 15
+
     def __init__(self, tank: TankData) -> None:
         super().__init__()
         self.tank = tank
@@ -579,6 +637,7 @@ class LightController(_Notifier):
         self.off_at: datetime | None = None
         self._unsub_timer: Callable[[], None] | None = None
         self._unsub_listener: Callable[[], None] | None = None
+        self._unsub_verify: Callable[[], None] | None = None
 
     @callback
     def async_setup(self) -> None:
@@ -587,6 +646,41 @@ class LightController(_Notifier):
             self._unsub_listener = async_track_state_change_event(
                 self.tank.hass, entities, self._async_member_changed
             )
+
+    def _any_member_on(self) -> bool:
+        return any(
+            (state := self.tank.hass.states.get(entity_id)) is not None
+            and state.state == "on"
+            for entity_id in self.tank.option_entities(CONF_LIGHTS)
+        )
+
+    def _schedule_verify(self, expect_on: bool) -> None:
+        """Confirm the command actually reached the device — if the plug's
+        integration is dead (e.g. HA lost a Tapo), the state never changes
+        and the card would otherwise lie about being on/off forever."""
+        self._cancel_verify()
+
+        async def _verify(_now: datetime) -> None:
+            self._unsub_verify = None
+            actually_on = self._any_member_on()
+            if expect_on and not actually_on and self.stage != LIGHTS_OFF:
+                self._cancel_timer()
+                self.stage = LIGHTS_OFF
+                self.off_at = None
+                self._notify()
+            elif not expect_on and actually_on and self.stage == LIGHTS_OFF:
+                self.stage = LIGHTS_ON
+                self.off_at = None
+                self._notify()
+
+        self._unsub_verify = async_call_later(
+            self.tank.hass, self.VERIFY_DELAY_S, _verify
+        )
+
+    def _cancel_verify(self) -> None:
+        if self._unsub_verify:
+            self._unsub_verify()
+            self._unsub_verify = None
 
     async def async_turn_on(self) -> None:
         tank = self.tank
@@ -601,6 +695,7 @@ class LightController(_Notifier):
             self.stage = LIGHTS_ON
             self.off_at = None
         self._notify()
+        self._schedule_verify(expect_on=True)
 
     async def async_turn_off(self) -> None:
         self._cancel_timer()
@@ -608,6 +703,7 @@ class LightController(_Notifier):
         self.stage = LIGHTS_OFF
         self.off_at = None
         self._notify()
+        self._schedule_verify(expect_on=False)
 
     async def _async_timer_fired(self, _now: datetime) -> None:
         self._unsub_timer = None
@@ -616,11 +712,7 @@ class LightController(_Notifier):
     async def _async_member_changed(self, _event: Any) -> None:
         """Keep the stage honest when a light is toggled outside the card
         (wall switch, another dashboard, the plug's own button)."""
-        any_on = any(
-            (state := self.tank.hass.states.get(entity_id)) is not None
-            and state.state == "on"
-            for entity_id in self.tank.option_entities(CONF_LIGHTS)
-        )
+        any_on = self._any_member_on()
         if not any_on and self.stage != LIGHTS_OFF:
             self._cancel_timer()
             self.stage = LIGHTS_OFF
@@ -663,6 +755,7 @@ class LightController(_Notifier):
     @callback
     def async_shutdown(self) -> None:
         self._cancel_timer()
+        self._cancel_verify()
         if self._unsub_listener:
             self._unsub_listener()
             self._unsub_listener = None

@@ -80,11 +80,15 @@ class FeedStageSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
             ATTR_WAVEMAKERS_AT: _iso(feed.wavemakers_resume_at),
             ATTR_SKIMMER_AT: _iso(feed.skimmer_resume_at),
             ATTR_SAVED_SPEEDS: dict(feed.saved_speeds),
+            "unresponsive": sorted(self.tank.unresponsive),
         }
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         self.async_on_remove(self.tank.feed.async_add_listener(self.async_write_ha_state))
+        self.async_on_remove(
+            self.tank.unresponsive_listeners.async_add_listener(self.async_write_ha_state)
+        )
         last = await self.async_get_last_state()
         if last is not None and last.state not in (FEED_IDLE, "unknown", "unavailable"):
             saved = last.attributes.get(ATTR_SAVED_SPEEDS) or {}
@@ -173,7 +177,10 @@ class LightStageSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         lights = self.tank.lights
-        return {ATTR_OFF_AT: _iso(lights.off_at) if lights else None}
+        return {
+            ATTR_OFF_AT: _iso(lights.off_at) if lights else None,
+            "unresponsive": sorted(self.tank.unresponsive),
+        }
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -181,6 +188,9 @@ class LightStageSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
             return
         self.async_on_remove(
             self.tank.lights.async_add_listener(self.async_write_ha_state)
+        )
+        self.async_on_remove(
+            self.tank.unresponsive_listeners.async_add_listener(self.async_write_ha_state)
         )
         last = await self.async_get_last_state()
         if last is not None and last.state not in (LIGHTS_OFF, "unknown", "unavailable"):
@@ -240,6 +250,7 @@ class PumpSpeedsSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
                 entity_id: _iso(resume_at)
                 for entity_id, resume_at in self.tank.pump_pauses.items()
             },
+            "unresponsive": sorted(self.tank.unresponsive),
         }
 
     async def async_added_to_hass(self) -> None:
@@ -257,6 +268,9 @@ class PumpSpeedsSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
         )
         self.async_on_remove(
             self.tank.pump_pause_listeners.async_add_listener(self.async_write_ha_state)
+        )
+        self.async_on_remove(
+            self.tank.unresponsive_listeners.async_add_listener(self.async_write_ha_state)
         )
         last = await self.async_get_last_state()
         if last is not None and not self.tank.pump_pauses:

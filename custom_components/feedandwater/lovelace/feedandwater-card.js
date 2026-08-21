@@ -130,6 +130,16 @@ const fmtRemaining = (iso) => {
   return m > 0 ? `${m}m ${String(s).padStart(2, "0")}s` : `${s}s`;
 };
 
+const unresponsiveNote = (hass, sensorState) => {
+  const ids = (sensorState && sensorState.attributes.unresponsive) || [];
+  if (!ids.length) return "";
+  const names = ids.map((id) => {
+    const st = hass.states[id];
+    return (st && st.attributes.friendly_name) || id;
+  });
+  return `<div class="warn">⚠ No response: ${names.join(", ")}</div>`;
+};
+
 const fmtOffMinutes = (minutes) => {
   if (minutes >= 60) {
     const h = Math.floor(minutes / 60);
@@ -320,6 +330,8 @@ class FeedAndWaterCard extends HTMLElement {
         .speeds { color: var(--secondary-text-color); font-size: 0.85em;
                   margin: 4px 0 0 18px; }
         .speeds b { color: var(--primary-text-color); font-weight: 500; }
+        .warn { color: var(--error-color, #f44336); font-size: 0.85em;
+                margin: 4px 0 0 18px; }
         .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
         .chip { display: inline-flex; align-items: center; gap: 6px;
                 border-radius: 16px; padding: 6px 16px; cursor: pointer;
@@ -430,6 +442,10 @@ class FeedAndWaterCard extends HTMLElement {
                 <span class="val">${Number(feedDur.state)} min</span>
               </div>`;
           }
+          const warn = unresponsiveNote(
+            hass,
+            this._state(tank, "feed_stage") || this._state(tank, "light_stage")
+          );
           return `<div class="tank">
               <div class="row">
                 <span class="dot ${status.dot}"></span>
@@ -438,6 +454,7 @@ class FeedAndWaterCard extends HTMLElement {
                 <button class="gear" data-slug="${tank.slug}" data-gear="1"
                   title="Tank settings">⚙</button>
               </div>
+              ${warn}
               ${speedsLine}
               ${feedSlider}
               <div class="chips">${chips}</div>
@@ -677,6 +694,7 @@ class FeedAndWaterLightsCard extends HTMLElement {
                 color: var(--primary-text-color); }
         .chip.go { background: var(--primary-color); color: var(--text-primary-color, #fff);
                    border-color: var(--primary-color); }
+        .warn { color: var(--error-color, #f44336); font-size: 0.85em; margin-top: 4px; }
         .empty { color: var(--secondary-text-color); font-size: 0.9em; padding: 4px 0; }
       </style>`;
 
@@ -712,12 +730,14 @@ class FeedAndWaterLightsCard extends HTMLElement {
                 <span class="val">${valText}</span>
               </div>`;
           }
+          const warn = unresponsiveNote(hass, stage);
           return `<div class="tank">
               <div class="row">
                 <span>💡</span>
                 <span class="name">${tank.name}</span>
                 <span class="status">${statusText}</span>
               </div>
+              ${warn}
               ${slider}
               <div class="chips">${chip}</div>
             </div>`;
@@ -817,6 +837,7 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
         : null;
       if (!sensor) continue;
       const paused = sensor.attributes.paused || {};
+      const unresponsive = new Set(sensor.attributes.unresponsive || []);
       for (const s of sensor.attributes.speeds || []) {
         if (want && !want.has(s.entity_id)) continue;
         rows.push({
@@ -826,6 +847,7 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
           isPaused: s.entity_id in paused,
           pausedUntil: paused[s.entity_id] || null,
           controllable: s.entity_id.startsWith("fan."),
+          unresponsive: unresponsive.has(s.entity_id),
         });
       }
     }
@@ -862,6 +884,7 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
         .chip.go { background: var(--primary-color); color: var(--text-primary-color, #fff);
                    border-color: var(--primary-color); }
         .paused-note { color: var(--secondary-text-color); font-size: 0.9em; flex: 1; }
+        .warn { color: var(--error-color, #f44336); font-size: 0.85em; margin-top: 2px; }
         .empty { color: var(--secondary-text-color); font-size: 0.9em; padding: 4px 0; }
       </style>`;
 
@@ -900,12 +923,16 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
                     </div>`;
                 }
               }
+              const warn = r.unresponsive
+                ? `<div class="warn">⚠ Not responding to commands</div>`
+                : "";
               return `<div class="prow">
                   <div class="top">
                     <span class="pump">${r.name}</span>
                     <span class="tank">${r.tank}</span>
                     <span class="value ${r.on ? "" : "off"}">${value}</span>
                   </div>
+                  ${warn}
                   ${controls}
                 </div>`;
             })
