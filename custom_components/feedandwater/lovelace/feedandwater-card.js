@@ -776,11 +776,11 @@ class FeedAndWaterLightsCard extends HTMLElement {
 
 class FeedAndWaterSpeedsCard extends HTMLElement {
   /* Speed card: per-pump speed readouts with controls. Fan-type pumps
-   * (power+speed combined) get an Off/On button plus a drag timer — off
-   * for X minutes then back on automatically, 0 = off until resumed —
-   * backed by the integration's pause_pump/resume_pump services so timers
-   * survive HA restarts. Pumps are filterable and relabelable in the
-   * card's editor. */
+   * (power+speed combined) and switch-backed pumps (e.g. on a Tapo plug)
+   * get an Off/On button plus a drag timer — off for X minutes then back
+   * on automatically, 0 = off until resumed — backed by the integration's
+   * pause_pump/resume_pump services so timers survive HA restarts. Pumps
+   * are filterable and relabelable in the card's editor. */
 
   static getConfigElement() {
     return document.createElement("feedandwater-speeds-card-editor");
@@ -846,7 +846,10 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
           name: labels[s.entity_id] || s.name,
           isPaused: s.entity_id in paused,
           pausedUntil: paused[s.entity_id] || null,
-          controllable: s.entity_id.startsWith("fan."),
+          // Anything that can actually be turned off gets the Off/timer
+          // controls — fans AND plain switches (Tapo-plug pumps). Number
+          // entities are read-only set-points with no off state.
+          controllable: /^(fan|switch)\./.test(s.entity_id),
           unresponsive: unresponsive.has(s.entity_id),
         });
       }
@@ -899,7 +902,9 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
               const value = !r.on
                 ? "off"
                 : r.value === null
-                  ? "?"
+                  ? r.entity_id.startsWith("switch.")
+                    ? "on"
+                    : "?"
                   : Math.round(r.value) + r.unit;
               let controls = "";
               if (r.controllable) {

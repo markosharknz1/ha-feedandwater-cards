@@ -55,7 +55,7 @@
           "pump_speed_controls": "Optional. If your return pump's speed is adjustable in Home Assistant, pick the control here — a number entity, or the pump's fan entity if power and speed are combined. Feed mode lowers the speed and restores it automatically.",
           "power_sensor": "Optional. A sensor that shows when mains/UPS power is on — enables a delayed skimmer restart after a power cut, so it doesn't foam over.",
           "lights": "Optional. Lights (or anything switchable — e.g. a Tapo plug running LED strips) you want a tap-to-run timer for. The Light timer slider sets how long they stay on; 0 keeps them on until you tap Lights off.",
-          "speed_displays": "Optional. Extra pump speeds to show at a glance on the card — display only, never adjusted (e.g. a wavemaker's flow control). Feed-mode speed controls are always shown automatically."
+          "speed_displays": "Optional. Extra pumps to show on the Speed card. Number/fan entities show their speed; plain switches (e.g. a pump on a Tapo plug) show on/off — and every pump gets the card's Off button and timer. Feed-mode speed controls are always shown automatically."
         }
       },
       "maintenance": {
@@ -140,7 +140,7 @@
           "pump_speed_controls": "Optional. If your return pump's speed is adjustable in Home Assistant, pick the control here — a number entity, or the pump's fan entity if power and speed are combined. Feed mode lowers the speed and restores it automatically.",
           "power_sensor": "Optional. A sensor that shows when mains/UPS power is on — enables a delayed skimmer restart after a power cut, so it doesn't foam over.",
           "lights": "Optional. Lights (or anything switchable — e.g. a Tapo plug running LED strips) you want a tap-to-run timer for. The Light timer slider sets how long they stay on; 0 keeps them on until you tap Lights off.",
-          "speed_displays": "Optional. Extra pump speeds to show at a glance on the card — display only, never adjusted (e.g. a wavemaker's flow control). Feed-mode speed controls are always shown automatically."
+          "speed_displays": "Optional. Extra pumps to show on the Speed card. Number/fan entities show their speed; plain switches (e.g. a pump on a Tapo plug) show on/off — and every pump gets the card's Off button and timer. Feed-mode speed controls are always shown automatically."
         }
       }
     }

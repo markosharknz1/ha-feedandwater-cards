@@ -106,6 +106,10 @@ class TankData:
     unresponsive: set[str] = field(default_factory=set)
     unresponsive_listeners: _Notifier = field(default_factory=_Notifier)
     _verify_unsubs: dict[object, Callable[[], None]] = field(default_factory=dict)
+    # Latest commanded state per entity — checks validate against this, not
+    # the state captured at schedule time, so a quick off→on flip (e.g. a
+    # short pump pause) can't leave a stale check raising a false warning.
+    _verify_expected: dict[str, str] = field(default_factory=dict)
     feed: "FeedController" = field(init=False)
     water: "WaterChangeController" = field(init=False)
     power: "PowerLossController | None" = field(init=False, default=None)
@@ -191,12 +195,16 @@ class TankData:
             return
 
         token = object()
+        for entity_id in checkable:
+            self._verify_expected[entity_id] = "on" if expect_on else "off"
 
         async def _check(_now: datetime) -> None:
             self._verify_unsubs.pop(token, None)
-            expected = "on" if expect_on else "off"
             changed = False
             for entity_id in checkable:
+                expected = self._verify_expected.get(entity_id)
+                if expected is None:
+                    continue
                 state = self.hass.states.get(entity_id)
                 ok = state is not None and state.state == expected
                 if not ok and entity_id not in self.unresponsive:

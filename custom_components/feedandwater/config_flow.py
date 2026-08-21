@@ -46,6 +46,11 @@ ON_OFF_SELECTOR = selector.EntitySelector(
 SPEED_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain=["number", "fan"], multiple=True)
 )
+# The Speed card additionally takes plain switches (e.g. a pump on a Tapo
+# plug) — no speed to read, but the per-pump Off button + timer still work.
+SPEED_CARD_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain=["number", "fan", "switch"], multiple=True)
+)
 POWER_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="binary_sensor")
 )
@@ -104,7 +109,7 @@ def _hardware_schema(current: dict[str, Any]) -> vol.Schema:
         ): LIGHTS_SELECTOR,
         vol.Optional(
             CONF_SPEED_DISPLAYS, default=current.get(CONF_SPEED_DISPLAYS, [])
-        ): SPEED_SELECTOR,
+        ): SPEED_CARD_SELECTOR,
     }
     power_current = current.get(CONF_POWER_SENSOR)
     if power_current:
