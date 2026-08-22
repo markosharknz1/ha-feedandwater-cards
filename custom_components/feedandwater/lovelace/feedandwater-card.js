@@ -876,13 +876,21 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
         .top { display: flex; align-items: baseline; gap: 10px; }
         .pump { font-weight: 500; }
         .tank { color: var(--secondary-text-color); font-size: 0.85em; }
-        .value { margin-left: auto; font-size: 1.35em; font-weight: 500; }
-        .value.off { color: var(--secondary-text-color); font-size: 1em; }
+        .status { margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+                  font-size: 0.9em; white-space: nowrap; }
+        .status::before { content: ""; width: 9px; height: 9px; border-radius: 50%;
+                          background: var(--secondary-text-color); flex: none; }
+        .status.on { color: var(--success-color, #43a047); }
+        .status.on::before { background: var(--success-color, #43a047); }
+        .status.paused { color: var(--warning-color, #ffa600); }
+        .status.paused::before { background: var(--warning-color, #ffa600); }
+        .status.off { color: var(--secondary-text-color); }
+        .value { font-size: 1.35em; font-weight: 500; flex: 0 0 3.2em; text-align: right; }
         .controls { display: flex; align-items: center; gap: 10px; margin-top: 8px;
                     font-size: 0.9em; }
         .controls label { flex: none; color: var(--secondary-text-color); }
         .controls input[type=range] { flex: 1; }
-        .controls .val { flex: 0 0 5.5em; text-align: right;
+        .controls .val { flex: 0 0 6.5em; text-align: right;
                          color: var(--secondary-text-color); }
         .chip { display: inline-flex; align-items: center; gap: 6px;
                 border-radius: 16px; padding: 6px 16px; cursor: pointer;
@@ -904,26 +912,33 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
       body = rows.length
         ? rows
             .map((r) => {
-              const value = !r.on
-                ? "off"
-                : r.value === null
-                  ? "on"
-                  : Math.round(r.value) + r.unit;
+              // Explicit status: a coloured dot + words, so "is it running?"
+              // is answered without decoding the number or the timer row.
+              let statusClass = "off";
+              let statusText = "Off";
+              if (r.isPaused) {
+                statusClass = "paused";
+                statusText = r.pausedUntil
+                  ? `Off · back on in ${fmtRemaining(r.pausedUntil) || "…"}`
+                  : "Off until you tap On";
+              } else if (r.on) {
+                statusClass = "on";
+                statusText = "Running";
+              }
+              const value =
+                r.on && r.value !== null ? Math.round(r.value) + r.unit : "";
               let controls = "";
               if (r.controllable) {
                 if (r.isPaused) {
-                  const note = r.pausedUntil
-                    ? `back on in ${fmtRemaining(r.pausedUntil) || "…"}`
-                    : "off until turned on";
                   controls = `<div class="controls">
-                      <span class="paused-note">${note}</span>
+                      <span class="paused-note">Tap On to start it again now</span>
                       <button class="chip go" data-eid="${r.entity_id}" data-act="resume">On</button>
                     </div>`;
                 } else {
                   const minutes = this._timers[r.entity_id] || 0;
-                  const valText = minutes === 0 ? "until on" : `${minutes} min`;
+                  const valText = minutes === 0 ? "until I tap On" : `${minutes} min`;
                   controls = `<div class="controls">
-                      <label>Off timer</label>
+                      <label>Off for</label>
                       <input type="range" min="0" max="60" step="5" value="${minutes}"
                         data-eid="${r.entity_id}" data-timer="1">
                       <span class="val">${valText}</span>
@@ -934,11 +949,15 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
               const warn = r.unresponsive
                 ? `<div class="warn">⚠ Not responding to commands</div>`
                 : "";
+              const group = this._config.show_groups
+                ? `<span class="tank">${r.tank}</span>`
+                : "";
               return `<div class="prow">
                   <div class="top">
                     <span class="pump">${r.name}</span>
-                    <span class="tank">${r.tank}</span>
-                    <span class="value ${r.on ? "" : "off"}">${value}</span>
+                    ${group}
+                    <span class="status ${statusClass}">${statusText}</span>
+                    ${value ? `<span class="value">${value}</span>` : ""}
                   </div>
                   ${warn}
                   ${controls}
@@ -1054,15 +1073,22 @@ class FeedAndWaterSpeedsCardEditor extends HTMLElement {
         ${rows}
         <div class="hint">Untick pumps to hide them; type a Label to rename a
           pump on the card (e.g. "Return Pump" instead of the device name).</div>
+        <label><input type="checkbox" id="show-groups" ${this._config.show_groups ? "checked" : ""}>
+          Show which tank / entry each pump belongs to</label>
       </div>`;
 
     this.shadowRoot.getElementById("title").addEventListener("input", (ev) => {
       this._config.title = ev.target.value;
       this._emit();
     });
-    this.shadowRoot.querySelectorAll("input[type=checkbox]").forEach((el) => {
+    this.shadowRoot.getElementById("show-groups").addEventListener("change", (ev) => {
+      if (ev.target.checked) this._config.show_groups = true;
+      else delete this._config.show_groups;
+      this._emit();
+    });
+    this.shadowRoot.querySelectorAll("input[type=checkbox][value]").forEach((el) => {
       el.addEventListener("change", () => {
-        const checked = [...this.shadowRoot.querySelectorAll("input[type=checkbox]")]
+        const checked = [...this.shadowRoot.querySelectorAll("input[type=checkbox][value]")]
           .filter((c) => c.checked)
           .map((c) => c.value);
         this._config.entities = checked.length === pumps.length ? [] : checked;
