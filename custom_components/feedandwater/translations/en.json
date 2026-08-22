@@ -7,6 +7,7 @@
           "tank": "A tank (feed mode, water changes, lights…)",
           "light": "Just a light timer",
           "speeds": "A Speed card (pump readouts + off timers)",
+          "equipment": "An Equipment status card (dosers, ATO, heaters…)",
           "maintenance": "A maintenance task (fleece roll, ATO reset…)",
           "redsea": "A RedSea task (ReefMat fleece / ATO reset)"
         }
@@ -61,7 +62,8 @@
           "pump_speed_controls": "Return pump speed control(s)",
           "power_sensor": "Mains/UPS power sensor",
           "lights": "Stand / tank light(s)",
-          "speed_displays": "Speed display(s)"
+          "speed_displays": "Speed display(s)",
+          "equipment": "Equipment to watch"
         },
         "data_description": {
           "wavemakers": "Paused during feeding and water changes.",
@@ -70,7 +72,22 @@
           "pump_speed_controls": "Optional. If your return pump's speed is adjustable in Home Assistant, pick the control here — a number entity, or the pump's fan entity if power and speed are combined. Feed mode lowers the speed and restores it automatically.",
           "power_sensor": "Optional. A sensor that shows when mains/UPS power is on — enables a delayed skimmer restart after a power cut, so it doesn't foam over.",
           "lights": "Optional. Lights (or anything switchable — e.g. a Tapo plug running LED strips) you want a tap-to-run timer for. The Light timer slider sets how long they stay on; 0 keeps them on until you tap Lights off.",
-          "speed_displays": "Optional. Extra pumps to show on the Speed card. Number/fan entities show their speed; plain switches (e.g. a pump on a Tapo plug) show on/off — and every pump gets the card's Off button and timer. Feed-mode speed controls are always shown automatically."
+          "speed_displays": "Optional. Extra pumps to show on the Speed card. Number/fan entities show their speed; plain switches (e.g. a pump on a Tapo plug) show on/off — and every pump gets the card's Off button and timer. Feed-mode speed controls are always shown automatically.",
+          "equipment": "Optional. Extra devices for the Equipment status card — dosers, ATO, heaters… (switches, sensors, binary sensors, numbers)."
+        }
+      },
+      "equipment": {
+        "title": "New Equipment status entry",
+        "description": "Devices to watch on the Equipment status card — dosers, ATO, heaters, chillers, anything. Switchable gear gets On/Off buttons, sensors show their reading, and anything that drops off the network is flagged. Add as many of these entries as you like.",
+        "data": {
+          "name": "Name",
+          "slug": "Entity ID prefix (optional)",
+          "equipment": "Device(s)"
+        },
+        "data_description": {
+          "name": "Shown on the card — e.g. \"Sump Equipment\".",
+          "slug": "Leave blank and it's created from the name automatically.",
+          "equipment": "Switches, fans, lights, sensors, binary sensors, or numbers — e.g. a doser's pump switch, the ATO's run-dry sensor, a heater's plug, a temperature probe."
         }
       },
       "maintenance": {
@@ -146,7 +163,8 @@
           "pump_speed_controls": "Return pump speed control(s)",
           "power_sensor": "Mains/UPS power sensor",
           "lights": "Stand / tank light(s)",
-          "speed_displays": "Speed display(s)"
+          "speed_displays": "Speed display(s)",
+          "equipment": "Equipment to watch"
         },
         "data_description": {
           "wavemakers": "Paused during feeding and water changes.",
@@ -155,7 +173,8 @@
           "pump_speed_controls": "Optional. If your return pump's speed is adjustable in Home Assistant, pick the control here — a number entity, or the pump's fan entity if power and speed are combined. Feed mode lowers the speed and restores it automatically.",
           "power_sensor": "Optional. A sensor that shows when mains/UPS power is on — enables a delayed skimmer restart after a power cut, so it doesn't foam over.",
           "lights": "Optional. Lights (or anything switchable — e.g. a Tapo plug running LED strips) you want a tap-to-run timer for. The Light timer slider sets how long they stay on; 0 keeps them on until you tap Lights off.",
-          "speed_displays": "Optional. Extra pumps to show on the Speed card. Number/fan entities show their speed; plain switches (e.g. a pump on a Tapo plug) show on/off — and every pump gets the card's Off button and timer. Feed-mode speed controls are always shown automatically."
+          "speed_displays": "Optional. Extra pumps to show on the Speed card. Number/fan entities show their speed; plain switches (e.g. a pump on a Tapo plug) show on/off — and every pump gets the card's Off button and timer. Feed-mode speed controls are always shown automatically.",
+          "equipment": "Optional. Extra devices for the Equipment status card — dosers, ATO, heaters… (switches, sensors, binary sensors, numbers)."
         }
       }
     }

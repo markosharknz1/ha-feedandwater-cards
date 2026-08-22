@@ -46,6 +46,8 @@ async def async_setup_entry(
         entities.append(PumpSpeedsSensor(tank))
     if tank.is_maintenance:
         entities.append(MaintenanceSensor(tank))
+    if tank.equipment_entities():
+        entities.append(EquipmentSensor(tank))
     async_add_entities(entities)
 
 
@@ -313,6 +315,68 @@ class MaintenanceSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
         last = await self.async_get_last_state()
         if last is not None and self.tank.maintenance_last_done is None:
             self.tank.maintenance_last_done = _parse(last.state)
+
+
+class EquipmentSensor(FeedAndWaterEntity, SensorEntity):
+    """Live status of the Equipment card's devices (dosers, ATO, heaters…).
+    State = how many are unavailable/missing (0 = all good — handy for
+    automations and future notifications); per-device details live in
+    the `devices` attribute. Event-driven like the pump speeds sensor."""
+
+    _attr_icon = "mdi:power-plug-outline"
+    _attr_native_unit_of_measurement = "unavailable"
+
+    def __init__(self, tank: TankData) -> None:
+        super().__init__(tank, "sensor", "equipment")
+        self._devices: list[dict[str, Any]] = []
+
+    def _read(self) -> None:
+        hass = self.tank.hass
+        result: list[dict[str, Any]] = []
+        for entity_id in self.tank.equipment_entities():
+            state = hass.states.get(entity_id)
+            available = state is not None and state.state not in (
+                "unavailable",
+                "unknown",
+            )
+            result.append(
+                {
+                    "entity_id": entity_id,
+                    "name": (state and state.attributes.get("friendly_name"))
+                    or entity_id,
+                    "domain": entity_id.split(".", 1)[0],
+                    "state": state.state if state else None,
+                    "available": available,
+                    "unit": (state and state.attributes.get("unit_of_measurement"))
+                    or "",
+                    "device_class": (state and state.attributes.get("device_class"))
+                    or None,
+                    "last_changed": state.last_changed.isoformat() if state else None,
+                }
+            )
+        self._devices = result
+
+    @property
+    def native_value(self) -> int:
+        return sum(1 for d in self._devices if not d["available"])
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"devices": self._devices}
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._read()
+
+        async def _changed(_event: Any) -> None:
+            self._read()
+            self.async_write_ha_state()
+
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, self.tank.equipment_entities(), _changed
+            )
+        )
 
 
 class OffDurationsSensor(FeedAndWaterEntity, SensorEntity):

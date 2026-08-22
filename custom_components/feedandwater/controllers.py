@@ -27,6 +27,7 @@ from .const import (
     CONF_POWER_SENSOR,
     CONF_PUMP_SPEED_CONTROLS,
     CONF_SPEED_DISPLAYS,
+    CONF_EQUIPMENT,
     KIND_MAINTENANCE,
     CONF_RETURN_PUMPS,
     CONF_SKIMMERS,
@@ -245,6 +246,10 @@ class TankData:
                 if entity_id not in seen:
                     seen.append(entity_id)
         return seen
+
+    def equipment_entities(self) -> list[str]:
+        """Entities watched by the Equipment status card (any domain)."""
+        return self.option_entities(CONF_EQUIPMENT)
 
     def read_speed(self, entity_id: str) -> float | None:
         """Current value of a speed control, or None if unreadable."""

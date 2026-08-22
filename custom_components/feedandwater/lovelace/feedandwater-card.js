@@ -32,6 +32,7 @@ const SENSOR_SUFFIXES = [
   "light_stage",
   "pump_speeds",
   "last_done",
+  "equipment",
 ];
 const BUTTON_SUFFIXES = [
   "start_feed",
@@ -118,7 +119,8 @@ function discoverTanks(hass, slugFilter) {
       t.entities.start_feed ||
       t.entities.lights_on ||
       t.entities.done ||
-      t.entities.pump_speeds
+      t.entities.pump_speeds ||
+      t.entities.equipment
   );
   for (const t of result) if (!t.name) t.name = t.slug;
   result.sort((a, b) => a.name.localeCompare(b.name));
@@ -1107,6 +1109,325 @@ class FeedAndWaterSpeedsCardEditor extends HTMLElement {
   }
 }
 
+const fmtSince = (iso) => {
+  if (!iso) return "";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms) || ms < 0) return "";
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${String(m % 60).padStart(2, "0")}m`;
+  const d = Math.floor(h / 24);
+  return `${d}d ${h % 24}h`;
+};
+
+// binary_sensor classes where "on" is the bad state
+const PROBLEM_CLASSES = new Set([
+  "problem", "safety", "smoke", "gas", "carbon_monoxide", "moisture", "tamper",
+  "battery", "heat", "cold", "vibration",
+]);
+
+class FeedAndWaterEquipmentCard extends HTMLElement {
+  /* Equipment status card: one row per watched device (dosers, ATO,
+   * heaters, probes…) with an explicit coloured status, how long it has
+   * been like that, an On/Off button for switchable gear, and a red
+   * "Unavailable" for anything that dropped off the network. Devices are
+   * filterable and relabelable in the card's editor. */
+
+  static getConfigElement() {
+    return document.createElement("feedandwater-equipment-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+    if (!this._tick) this._tick = setInterval(() => this._render(), 30000);
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  disconnectedCallback() {
+    if (this._tick) {
+      clearInterval(this._tick);
+      this._tick = null;
+    }
+  }
+
+  _rows() {
+    if (!this._hass || !this._config) return [];
+    const want =
+      this._config.entities && this._config.entities.length
+        ? new Set(this._config.entities)
+        : null;
+    const labels = this._config.labels || {};
+    const rows = [];
+    for (const tank of discoverTanks(this._hass, this._config.tanks)) {
+      const sensor = tank.entities.equipment
+        ? this._hass.states[tank.entities.equipment]
+        : null;
+      if (!sensor) continue;
+      for (const d of sensor.attributes.devices || []) {
+        if (want && !want.has(d.entity_id)) continue;
+        // Prefer the live state object (fresher than the attribute copy).
+        const st = this._hass.states[d.entity_id];
+        rows.push({
+          ...d,
+          group: tank.name,
+          name: labels[d.entity_id] || (st && st.attributes.friendly_name) || d.name,
+          state: st ? st.state : null,
+          available: !!st && st.state !== "unavailable" && st.state !== "unknown",
+          unit: (st && st.attributes.unit_of_measurement) || d.unit || "",
+          device_class: (st && st.attributes.device_class) || d.device_class,
+          last_changed: st ? st.last_changed : d.last_changed,
+          stateObj: st,
+        });
+      }
+    }
+    return rows;
+  }
+
+  _describe(r) {
+    // -> {cls, text, value, switchable}
+    if (!r.available) return { cls: "bad", text: "Unavailable", value: "" };
+    const onOff = ["switch", "fan", "light"].includes(r.domain);
+    if (onOff) {
+      return r.state === "on"
+        ? { cls: "on", text: "Running", value: "", switchable: true }
+        : { cls: "off", text: "Off", value: "", switchable: true };
+    }
+    if (r.domain === "binary_sensor") {
+      let text = null;
+      try {
+        if (this._hass.formatEntityState && r.stateObj)
+          text = this._hass.formatEntityState(r.stateObj);
+      } catch (_e) {
+        text = null;
+      }
+      const isOn = r.state === "on";
+      const bad = PROBLEM_CLASSES.has(r.device_class || "");
+      if (!text) {
+        if (bad) text = isOn ? "Problem" : "OK";
+        else text = isOn ? "Active" : "Clear";
+      }
+      const cls = isOn ? (bad ? "bad" : "on") : bad ? "on" : "off";
+      return { cls, text, value: "" };
+    }
+    // sensor / number: show the reading
+    const num = Number(r.state);
+    const value = Number.isFinite(num)
+      ? `${Math.round(num * 10) / 10}${r.unit ? " " + r.unit : ""}`
+      : String(r.state);
+    return { cls: "on", text: "OK", value };
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    const hass = this._hass;
+
+    const style = `
+      <style>
+        ha-card { padding: 12px 16px; height: 100%; box-sizing: border-box; }
+        .heading { font-size: 1.1em; font-weight: 500; margin-bottom: 8px; }
+        .erow { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+        .erow + .erow { border-top: 1px solid var(--divider-color); }
+        .who { flex: 1; min-width: 0; }
+        .name { font-weight: 500; }
+        .group { color: var(--secondary-text-color); font-size: 0.85em; margin-left: 6px; }
+        .since { color: var(--secondary-text-color); font-size: 0.82em; margin-top: 2px; }
+        .status { display: inline-flex; align-items: center; gap: 6px;
+                  font-size: 0.9em; white-space: nowrap; }
+        .status::before { content: ""; width: 9px; height: 9px; border-radius: 50%;
+                          background: var(--secondary-text-color); flex: none; }
+        .status.on { color: var(--success-color, #43a047); }
+        .status.on::before { background: var(--success-color, #43a047); }
+        .status.bad { color: var(--error-color, #f44336); font-weight: 500; }
+        .status.bad::before { background: var(--error-color, #f44336); }
+        .status.off { color: var(--secondary-text-color); }
+        .value { font-size: 1.25em; font-weight: 500; white-space: nowrap; }
+        .chip { display: inline-flex; align-items: center; border-radius: 16px;
+                padding: 6px 16px; cursor: pointer; font: inherit; font-size: 0.92em;
+                border: 1px solid var(--divider-color);
+                background: var(--secondary-background-color);
+                color: var(--primary-text-color); flex: none; }
+        .chip.go { background: var(--primary-color); color: var(--text-primary-color, #fff);
+                   border-color: var(--primary-color); }
+        .empty { color: var(--secondary-text-color); font-size: 0.9em; padding: 4px 0; }
+      </style>`;
+
+    let body = "";
+    if (!hass) {
+      body = `<div class="empty">Waiting for Home Assistant…</div>`;
+    } else {
+      const rows = this._rows();
+      body = rows.length
+        ? rows
+            .map((r) => {
+              const d = this._describe(r);
+              const since = fmtSince(r.last_changed);
+              const sinceLine = since
+                ? `<div class="since">${d.text === "Unavailable" ? "since" : "for"} ${since}</div>`
+                : "";
+              const group = this._config.show_groups
+                ? `<span class="group">${r.group}</span>`
+                : "";
+              const button = d.switchable && r.available
+                ? r.state === "on"
+                  ? `<button class="chip" data-eid="${r.entity_id}" data-act="turn_off">Off</button>`
+                  : `<button class="chip go" data-eid="${r.entity_id}" data-act="turn_on">On</button>`
+                : "";
+              return `<div class="erow">
+                  <div class="who">
+                    <span class="name">${r.name}</span>${group}
+                    ${sinceLine}
+                  </div>
+                  <span class="status ${d.cls}">${d.text}</span>
+                  ${d.value ? `<span class="value">${d.value}</span>` : ""}
+                  ${button}
+                </div>`;
+            })
+            .join("")
+        : `<div class="empty">No equipment to show yet. Go to Settings →
+            Devices &amp; Services → Add Integration → Reef Feed &amp; Water →
+            "An Equipment status card" and pick your devices (or add Equipment
+            to watch in a tank's Configure dialog).</div>`;
+    }
+
+    const heading = this._config.title
+      ? `<div class="heading">${this._config.title}</div>`
+      : "";
+    this.shadowRoot.innerHTML = `${style}<ha-card>${heading}${body}</ha-card>`;
+
+    this.shadowRoot.querySelectorAll("[data-act]").forEach((el) => {
+      el.addEventListener("click", () => {
+        this._hass.callService("homeassistant", el.dataset.act, {
+          entity_id: el.dataset.eid,
+        });
+      });
+    });
+  }
+}
+
+class FeedAndWaterEquipmentCardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = { ...(config || {}) };
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  _emit() {
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config: this._config },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  _devices() {
+    const out = [];
+    for (const tank of discoverTanks(this._hass, null)) {
+      const sensor = tank.entities.equipment
+        ? this._hass.states[tank.entities.equipment]
+        : null;
+      if (!sensor) continue;
+      for (const d of sensor.attributes.devices || []) {
+        out.push({ ...d, group: tank.name });
+      }
+    }
+    return out;
+  }
+
+  _render() {
+    if (!this._config) this._config = {};
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    if (!this._hass) {
+      this.shadowRoot.innerHTML = `<div>Loading…</div>`;
+      return;
+    }
+    const devices = this._devices();
+    const chosen = new Set(this._config.entities || []);
+    const labels = this._config.labels || {};
+    const rows = devices
+      .map(
+        (d) => `<div class="pump-row">
+          <input type="checkbox" value="${d.entity_id}"
+            ${chosen.size === 0 || chosen.has(d.entity_id) ? "checked" : ""}>
+          <span class="pname">${d.name} <span class="hint">(${d.group})</span></span>
+          <input type="text" class="label-input" placeholder="Label"
+            data-eid="${d.entity_id}" value="${(labels[d.entity_id] || "").replace(/"/g, "&quot;")}">
+        </div>`
+      )
+      .join("");
+    this.shadowRoot.innerHTML = `
+      <style>
+        .wrap { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+        .hint { color: var(--secondary-text-color); font-size: 0.88em; }
+        .pump-row { display: flex; align-items: center; gap: 8px; }
+        .pname { flex: 1; min-width: 0; }
+        input[type=text] { padding: 6px 8px; font: inherit;
+          background: var(--card-background-color); color: var(--primary-text-color);
+          border: 1px solid var(--divider-color); border-radius: 4px; }
+        .label-input { flex: 0 0 10em; }
+      </style>
+      <div class="wrap">
+        <label>Title (optional)
+          <input type="text" id="title" value="${(this._config.title || "").replace(/"/g, "&quot;")}"></label>
+        <div>Devices shown ${devices.length ? "" : "<span class='hint'>(none watched yet — Settings → Devices &amp; Services → Add Integration → Reef Feed &amp; Water → \"An Equipment status card\")</span>"}</div>
+        ${rows}
+        <div class="hint">Untick devices to hide them; type a Label to rename one
+          on the card (e.g. "Doser 1 — Alk").</div>
+        <label><input type="checkbox" id="show-groups" ${this._config.show_groups ? "checked" : ""}>
+          Show which tank / entry each device belongs to</label>
+      </div>`;
+
+    this.shadowRoot.getElementById("title").addEventListener("input", (ev) => {
+      this._config.title = ev.target.value;
+      this._emit();
+    });
+    this.shadowRoot.getElementById("show-groups").addEventListener("change", (ev) => {
+      if (ev.target.checked) this._config.show_groups = true;
+      else delete this._config.show_groups;
+      this._emit();
+    });
+    this.shadowRoot.querySelectorAll("input[type=checkbox][value]").forEach((el) => {
+      el.addEventListener("change", () => {
+        const checked = [...this.shadowRoot.querySelectorAll("input[type=checkbox][value]")]
+          .filter((c) => c.checked)
+          .map((c) => c.value);
+        this._config.entities = checked.length === devices.length ? [] : checked;
+        this._emit();
+      });
+    });
+    this.shadowRoot.querySelectorAll(".label-input").forEach((el) => {
+      el.addEventListener("input", () => {
+        const labels = { ...(this._config.labels || {}) };
+        if (el.value.trim()) labels[el.dataset.eid] = el.value.trim();
+        else delete labels[el.dataset.eid];
+        this._config.labels = labels;
+        this._emit();
+      });
+    });
+  }
+}
+
 class FeedAndWaterMaintenanceCard extends HTMLElement {
   /* Maintenance card: repeatable "mark it done" tasks (fleece roll, ATO
    * reset, filter socks…) — time since last done, an optional live status
@@ -1334,6 +1655,11 @@ customElements.define(
   "feedandwater-maintenance-card-editor",
   FeedAndWaterMaintenanceCardEditor
 );
+customElements.define("feedandwater-equipment-card", FeedAndWaterEquipmentCard);
+customElements.define(
+  "feedandwater-equipment-card-editor",
+  FeedAndWaterEquipmentCardEditor
+);
 
 window.customCards = window.customCards || [];
 window.customCards.push(
@@ -1360,6 +1686,12 @@ window.customCards.push(
     name: "Reef Feed & Water — Speeds",
     description:
       "Per-pump speed readouts with Off/On controls and off-for-X-minutes timers, filterable and relabelable — e.g. just the wavemakers.",
+  },
+  {
+    type: "feedandwater-equipment-card",
+    name: "Reef Feed & Water — Equipment status",
+    description:
+      "Live status for dosers, ATO, heaters, probes — anything. Coloured Running/Off/Problem/OK status, readings with units, time in that state, On/Off buttons, and red Unavailable for gear that dropped off the network.",
   },
   {
     type: "feedandwater-maintenance-card",

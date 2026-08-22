@@ -14,6 +14,8 @@ CONF_PUMP_SPEED_CONTROLS = "pump_speed_controls"
 CONF_POWER_SENSOR = "power_sensor"
 CONF_LIGHTS = "lights"
 CONF_SPEED_DISPLAYS = "speed_displays"
+# Equipment status card: any entities to watch (dosers, ATO, heaters…)
+CONF_EQUIPMENT = "equipment"
 
 # Maintenance-task entries (repeatable, like light timers)
 CONF_KIND = "kind"

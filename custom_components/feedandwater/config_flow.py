@@ -31,6 +31,7 @@ from .const import (
     CONF_SKIMMERS,
     CONF_SLUG,
     CONF_SPEED_DISPLAYS,
+    CONF_EQUIPMENT,
     CONF_WAVEMAKERS,
     DOMAIN,
     KIND_MAINTENANCE,
@@ -50,6 +51,14 @@ SPEED_SELECTOR = selector.EntitySelector(
 # plug) — no speed to read, but the per-pump Off button + timer still work.
 SPEED_CARD_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain=["number", "fan", "switch"], multiple=True)
+)
+# Equipment status card: anything worth watching — switchable gear gets
+# On/Off buttons, sensors show their reading, everything shows availability.
+EQUIPMENT_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(
+        domain=["switch", "fan", "light", "binary_sensor", "sensor", "number"],
+        multiple=True,
+    )
 )
 POWER_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="binary_sensor")
@@ -110,6 +119,9 @@ def _hardware_schema(current: dict[str, Any]) -> vol.Schema:
         vol.Optional(
             CONF_SPEED_DISPLAYS, default=current.get(CONF_SPEED_DISPLAYS, [])
         ): SPEED_CARD_SELECTOR,
+        vol.Optional(
+            CONF_EQUIPMENT, default=current.get(CONF_EQUIPMENT, [])
+        ): EQUIPMENT_SELECTOR,
     }
     power_current = current.get(CONF_POWER_SENSOR)
     if power_current:
@@ -135,7 +147,14 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="user",
-            menu_options=["tank", "light", "speeds", "maintenance", "redsea"],
+            menu_options=[
+                "tank",
+                "light",
+                "speeds",
+                "equipment",
+                "maintenance",
+                "redsea",
+            ],
         )
 
     async def async_step_redsea(
@@ -235,6 +254,34 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
                     vol.Required("name", default="Speeds"): str,
                     vol.Optional(CONF_SLUG): str,
                     vol.Required(CONF_SPEED_DISPLAYS): SPEED_CARD_SELECTOR,
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_equipment(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Standalone Equipment status entry: name + the devices to watch."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            slug = self._resolve_identity(user_input, errors)
+            if slug is not None:
+                await self.async_set_unique_id(slug)
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(
+                    title=self._name or slug,
+                    data={CONF_SLUG: slug},
+                    options={CONF_EQUIPMENT: user_input[CONF_EQUIPMENT]},
+                )
+
+        return self.async_show_form(
+            step_id="equipment",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("name", default="Equipment"): str,
+                    vol.Optional(CONF_SLUG): str,
+                    vol.Required(CONF_EQUIPMENT): EQUIPMENT_SELECTOR,
                 }
             ),
             errors=errors,
