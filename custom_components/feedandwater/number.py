@@ -12,6 +12,7 @@ from .const import (
     DOMAIN,
     NUMBER_SPECS,
     VALUE_LIGHT_TIMER,
+    VALUE_NIGHT_LEVEL,
     VALUE_POWER_LOSS_DELAY,
 )
 from .controllers import TankData
@@ -28,6 +29,8 @@ async def async_setup_entry(
             return tank.lights is not None
         if key == VALUE_POWER_LOSS_DELAY:
             return tank.power is not None
+        if key == VALUE_NIGHT_LEVEL:
+            return tank.has_night
         # Everything else belongs to feed/water-change — only for tanks
         # with pause/resume hardware (not lights-only entries).
         return tank.has_equipment
@@ -59,3 +62,7 @@ class TankNumber(FeedAndWaterEntity, RestoreNumber):
         self._attr_native_value = value
         self.tank.values[self.key] = float(value)
         self.async_write_ha_state()
+        # Dragging the Night level while the night light is on retunes the
+        # channels live rather than waiting for the next toggle.
+        if self.key == VALUE_NIGHT_LEVEL:
+            await self.tank.async_apply_night_level()

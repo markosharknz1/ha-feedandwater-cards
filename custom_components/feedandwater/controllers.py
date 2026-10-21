@@ -28,6 +28,10 @@ from .const import (
     CONF_PUMP_SPEED_CONTROLS,
     CONF_SPEED_DISPLAYS,
     CONF_EQUIPMENT,
+    CONF_NIGHT_CHANNELS,
+    CONF_NIGHT_DIM_CHANNELS,
+    CONF_NIGHT_MODE_OPTION,
+    CONF_NIGHT_MODE_SELECTS,
     KIND_MAINTENANCE,
     CONF_RETURN_PUMPS,
     CONF_SKIMMERS,
@@ -42,6 +46,7 @@ from .const import (
     NUMBER_SPECS,
     SAFETY_TIMEOUT_HOURS,
     VALUE_LIGHT_TIMER,
+    VALUE_NIGHT_LEVEL,
     VALUE_POWER_LOSS_DELAY,
     VALUE_RETURN_PUMP_FEED_SPEED,
     VALUE_SKIMMER_EXTRA_OFF,
@@ -111,6 +116,12 @@ class TankData:
     # the state captured at schedule time, so a quick off→on flip (e.g. a
     # short pump pause) can't leave a stale check raising a false warning.
     _verify_expected: dict[str, str] = field(default_factory=dict)
+    # Night Feed switch: snapshot of every touched entity taken at turn-on
+    # so turn-off restores exactly what was there (JSON-safe — it rides on
+    # the switch entity's restored attributes across HA restarts).
+    night_active: bool = False
+    night_snapshot: dict[str, Any] = field(default_factory=dict)
+    night_listeners: _Notifier = field(default_factory=_Notifier)
     feed: "FeedController" = field(init=False)
     water: "WaterChangeController" = field(init=False)
     power: "PowerLossController | None" = field(init=False, default=None)
@@ -136,6 +147,11 @@ class TankData:
             self.option_entities(key)
             for key in (CONF_WAVEMAKERS, CONF_SKIMMERS, CONF_RETURN_PUMPS)
         )
+
+    @property
+    def has_night(self) -> bool:
+        """Whether this entry is (or includes) a Night Feed switch."""
+        return bool(self.option_entities(CONF_NIGHT_CHANNELS))
 
     @property
     def is_maintenance(self) -> bool:
@@ -319,6 +335,145 @@ class TankData:
                 if resume_at is not None:
                     self._schedule_pump_resume(entity_id, resume_at)
         self.pump_pause_listeners._notify()
+
+    # --- Night Feed switch ----------------------------------------------
+    #
+    # Generic percentage-light support: a channel is a number entity
+    # (0-100 set-point, e.g. a reef light's per-channel slider) or a light
+    # entity (brightness). On: snapshot everything, flip any mode selects
+    # (e.g. a light's Scheduled -> Manual control), zero the dim channels,
+    # raise the night channels to the Night level. Off: restore the
+    # snapshot in reverse, so the light goes back to exactly what it was
+    # doing — schedule included.
+
+    def _night_read(self, entity_id: str) -> dict[str, Any] | None:
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        domain = entity_id.split(".", 1)[0]
+        if domain == "light":
+            return {
+                "domain": "light",
+                "on": state.state == "on",
+                "brightness": state.attributes.get("brightness"),
+            }
+        if domain in ("select", "input_select"):
+            return {"domain": domain, "option": state.state}
+        try:
+            return {"domain": domain, "value": float(state.state)}
+        except ValueError:
+            return None
+
+    async def _night_set_pct(self, entity_id: str, pct: float) -> None:
+        domain = entity_id.split(".", 1)[0]
+        if domain == "light":
+            if pct <= 0:
+                await self.hass.services.async_call(
+                    "light", "turn_off", {"entity_id": entity_id}, blocking=True
+                )
+            else:
+                await self.hass.services.async_call(
+                    "light",
+                    "turn_on",
+                    {"entity_id": entity_id, "brightness_pct": int(round(pct))},
+                    blocking=True,
+                )
+            return
+        await self.hass.services.async_call(
+            "number", "set_value", {"entity_id": entity_id, "value": pct}, blocking=True
+        )
+
+    async def _night_restore_one(self, entity_id: str, snap: dict[str, Any]) -> None:
+        domain = snap.get("domain")
+        if domain == "light":
+            if snap.get("on"):
+                data: dict[str, Any] = {"entity_id": entity_id}
+                if snap.get("brightness") is not None:
+                    data["brightness"] = snap["brightness"]
+                await self.hass.services.async_call(
+                    "light", "turn_on", data, blocking=True
+                )
+            else:
+                await self.hass.services.async_call(
+                    "light", "turn_off", {"entity_id": entity_id}, blocking=True
+                )
+        elif domain in ("select", "input_select"):
+            await self.hass.services.async_call(
+                domain,
+                "select_option",
+                {"entity_id": entity_id, "option": snap["option"]},
+                blocking=True,
+            )
+        elif snap.get("value") is not None:
+            await self.hass.services.async_call(
+                "number",
+                "set_value",
+                {"entity_id": entity_id, "value": snap["value"]},
+                blocking=True,
+            )
+
+    async def async_night_on(self) -> None:
+        if not self.has_night:
+            return
+        night = self.option_entities(CONF_NIGHT_CHANNELS)
+        dim = self.option_entities(CONF_NIGHT_DIM_CHANNELS)
+        selects = self.option_entities(CONF_NIGHT_MODE_SELECTS)
+        # Snapshot only on a fresh activation — re-applying while active
+        # (e.g. the level slider moved) must not capture our own values.
+        if not self.night_active:
+            snapshot: dict[str, Any] = {}
+            for entity_id in [*night, *dim, *selects]:
+                snap = self._night_read(entity_id)
+                if snap is not None:
+                    snapshot[entity_id] = snap
+            self.night_snapshot = snapshot
+        option = str(self.entry.options.get(CONF_NIGHT_MODE_OPTION) or "").strip()
+        if option:
+            for entity_id in selects:
+                domain = entity_id.split(".", 1)[0]
+                await self.hass.services.async_call(
+                    domain,
+                    "select_option",
+                    {"entity_id": entity_id, "option": option},
+                    blocking=True,
+                )
+        for entity_id in dim:
+            await self._night_set_pct(entity_id, 0)
+        level = float(self.values.get(VALUE_NIGHT_LEVEL, 25))
+        for entity_id in night:
+            await self._night_set_pct(entity_id, level)
+        self.night_active = True
+        self.night_listeners._notify()
+
+    async def async_apply_night_level(self) -> None:
+        """Re-apply the night channels after the level slider moves."""
+        if self.night_active:
+            await self.async_night_on()
+
+    async def async_night_off(self) -> None:
+        if not self.night_active and not self.night_snapshot:
+            return
+        order = [
+            *self.option_entities(CONF_NIGHT_CHANNELS),
+            *self.option_entities(CONF_NIGHT_DIM_CHANNELS),
+            *self.option_entities(CONF_NIGHT_MODE_SELECTS),
+        ]
+        for entity_id in order:
+            snap = self.night_snapshot.get(entity_id)
+            if snap is not None:
+                await self._night_restore_one(entity_id, snap)
+        self.night_active = False
+        self.night_snapshot = {}
+        self.night_listeners._notify()
+
+    @callback
+    def async_night_restore(self, snapshot: dict[str, Any]) -> None:
+        """Re-arm after an HA restart that happened mid-night-feed: keep
+        the switch on and the saved snapshot so the next Off still
+        restores. No commands are re-sent — the light is already lit."""
+        self.night_active = True
+        self.night_snapshot = dict(snapshot)
+        self.night_listeners._notify()
 
     @callback
     def async_shutdown(self) -> None:

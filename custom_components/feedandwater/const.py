@@ -17,6 +17,14 @@ CONF_SPEED_DISPLAYS = "speed_displays"
 # Equipment status card: any entities to watch (dosers, ATO, heaters…)
 CONF_EQUIPMENT = "equipment"
 
+# Night Feed switch entries: a red-only (or any-channel) viewing light.
+# Channels are generic percentage controls — number entities (e.g. a
+# reef light's per-channel sliders) or light entities (brightness).
+CONF_NIGHT_CHANNELS = "night_channels"
+CONF_NIGHT_DIM_CHANNELS = "night_dim_channels"
+CONF_NIGHT_MODE_SELECTS = "night_mode_selects"
+CONF_NIGHT_MODE_OPTION = "night_mode_option"
+
 # Maintenance-task entries (repeatable, like light timers)
 CONF_KIND = "kind"
 KIND_MAINTENANCE = "maintenance"
@@ -32,6 +40,7 @@ VALUE_SKIMMER_RESTART_DELAY = "skimmer_restart_delay"
 VALUE_POWER_LOSS_DELAY = "power_loss_delay"
 VALUE_LAST_WATER_CHANGE_VOLUME = "last_water_change_volume"
 VALUE_LIGHT_TIMER = "light_timer"
+VALUE_NIGHT_LEVEL = "night_level"
 
 # (default, min, max, step, unit) per number entity
 NUMBER_SPECS: dict[str, tuple[float, float, float, float, str]] = {
@@ -46,6 +55,8 @@ NUMBER_SPECS: dict[str, tuple[float, float, float, float, str]] = {
     # 0 = stay on until turned off manually; up-to-an-hour range keeps the
     # slider usable (user feedback: 8h max made real values a sliver)
     VALUE_LIGHT_TIMER: (0, 0, 60, 5, "min"),
+    # Night Feed viewing-light brightness
+    VALUE_NIGHT_LEVEL: (25, 5, 100, 5, "%"),
 }
 
 # "Until I Stop" starts a feed at the max duration rather than a true

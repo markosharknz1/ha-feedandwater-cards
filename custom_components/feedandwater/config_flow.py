@@ -32,6 +32,10 @@ from .const import (
     CONF_SLUG,
     CONF_SPEED_DISPLAYS,
     CONF_EQUIPMENT,
+    CONF_NIGHT_CHANNELS,
+    CONF_NIGHT_DIM_CHANNELS,
+    CONF_NIGHT_MODE_OPTION,
+    CONF_NIGHT_MODE_SELECTS,
     CONF_WAVEMAKERS,
     DOMAIN,
     KIND_MAINTENANCE,
@@ -59,6 +63,14 @@ EQUIPMENT_SELECTOR = selector.EntitySelector(
         domain=["switch", "fan", "light", "binary_sensor", "sensor", "number"],
         multiple=True,
     )
+)
+# Night Feed switch: percentage-controllable channels — a number entity
+# (a light's per-channel slider) or a light entity (brightness).
+NIGHT_CHANNEL_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain=["number", "light"], multiple=True)
+)
+NIGHT_MODE_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain=["select", "input_select"], multiple=True)
 )
 POWER_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="binary_sensor")
@@ -150,6 +162,7 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
             menu_options=[
                 "tank",
                 "light",
+                "night",
                 "speeds",
                 "equipment",
                 "maintenance",
@@ -224,6 +237,56 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
                     vol.Required("name"): str,
                     vol.Optional(CONF_SLUG): str,
                     vol.Required(CONF_LIGHTS): LIGHTS_SELECTOR,
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_night(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Standalone Night Feed switch: a red-only (or any-channel)
+        viewing light for after-dark feeding. Vendor-agnostic — works with
+        any light whose channels are percentage-controllable."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            slug = self._resolve_identity(user_input, errors)
+            if slug is not None:
+                await self.async_set_unique_id(slug)
+                self._abort_if_unique_id_configured()
+                options: dict[str, Any] = {
+                    CONF_NIGHT_CHANNELS: user_input[CONF_NIGHT_CHANNELS],
+                    CONF_NIGHT_DIM_CHANNELS: user_input.get(
+                        CONF_NIGHT_DIM_CHANNELS, []
+                    ),
+                    CONF_NIGHT_MODE_SELECTS: user_input.get(
+                        CONF_NIGHT_MODE_SELECTS, []
+                    ),
+                }
+                if user_input.get(CONF_NIGHT_MODE_OPTION):
+                    options[CONF_NIGHT_MODE_OPTION] = user_input[
+                        CONF_NIGHT_MODE_OPTION
+                    ]
+                return self.async_create_entry(
+                    title=self._name or slug,
+                    data={CONF_SLUG: slug},
+                    options=options,
+                )
+
+        return self.async_show_form(
+            step_id="night",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("name", default="Night Feed"): str,
+                    vol.Optional(CONF_SLUG): str,
+                    vol.Required(CONF_NIGHT_CHANNELS): NIGHT_CHANNEL_SELECTOR,
+                    vol.Optional(
+                        CONF_NIGHT_DIM_CHANNELS, default=[]
+                    ): NIGHT_CHANNEL_SELECTOR,
+                    vol.Optional(
+                        CONF_NIGHT_MODE_SELECTS, default=[]
+                    ): NIGHT_MODE_SELECTOR,
+                    vol.Optional(CONF_NIGHT_MODE_OPTION): str,
                 }
             ),
             errors=errors,

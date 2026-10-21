@@ -6,10 +6,31 @@
         "menu_options": {
           "tank": "A tank (feed mode, water changes, lights…)",
           "light": "Just a light timer",
+          "night": "A Night Feed switch (red-only viewing light)",
           "speeds": "A Speed card (pump readouts + off timers)",
           "equipment": "An Equipment status card (dosers, ATO, heaters…)",
           "maintenance": "A maintenance task (fleece roll, ATO reset…)",
           "redsea": "A RedSea task (ReefMat fleece / ATO reset)"
+        }
+      },
+      "night": {
+        "title": "New Night Feed switch",
+        "description": "One switch that turns your light into a dim viewing light for after-dark feeding — e.g. red channels only, low, so you can see without waking fish or corals. Turning it off puts everything back exactly as it was. Works with any light whose channels show up as number or light entities.",
+        "data": {
+          "name": "Name",
+          "slug": "Entity ID prefix (optional)",
+          "night_channels": "Night channel(s)",
+          "night_dim_channels": "Channel(s) to turn off while feeding",
+          "night_mode_selects": "Schedule/mode control(s) (optional)",
+          "night_mode_option": "Mode to select while feeding (optional)"
+        },
+        "data_description": {
+          "name": "Shown on the switch — e.g. \"Night Feed\".",
+          "slug": "Leave blank and it's created from the name automatically.",
+          "night_channels": "The channels to bring up — usually the light's red channel(s). Number entities (per-channel sliders) or light entities (brightness). The Night level slider sets how bright.",
+          "night_dim_channels": "Channels to drop to zero while the night light is on — e.g. white/blue channels that are still lit. Restored when you switch off.",
+          "night_mode_selects": "If your light follows its own schedule, pick its mode/control select here so the schedule doesn't override the night light.",
+          "night_mode_option": "The option to pick on that control while feeding — e.g. \"Manual\". The previous option is restored when you switch off."
         }
       },
       "speeds": {
