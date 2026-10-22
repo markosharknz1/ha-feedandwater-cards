@@ -143,6 +143,30 @@ def _hardware_schema(current: dict[str, Any]) -> vol.Schema:
     return vol.Schema(schema)
 
 
+def _night_options_schema(current: dict[str, Any]) -> vol.Schema:
+    """Night Feed pickers for the OptionsFlow, pre-filled with current values.
+
+    A Night Feed is its own entry, so Configure must re-show the night fields
+    (not the tank hardware pickers) - otherwise reconfiguring would wipe the
+    night channels."""
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_NIGHT_CHANNELS, default=current.get(CONF_NIGHT_CHANNELS, [])
+            ): NIGHT_CHANNEL_SELECTOR,
+            vol.Optional(
+                CONF_NIGHT_DIM_CHANNELS, default=current.get(CONF_NIGHT_DIM_CHANNELS, [])
+            ): NIGHT_CHANNEL_SELECTOR,
+            vol.Optional(
+                CONF_NIGHT_MODE_SELECTS, default=current.get(CONF_NIGHT_MODE_SELECTS, [])
+            ): NIGHT_MODE_SELECTOR,
+            vol.Optional(
+                CONF_NIGHT_MODE_OPTION, default=current.get(CONF_NIGHT_MODE_OPTION, "")
+            ): str,
+        }
+    )
+
+
 class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
     """Menu flow: a full tank (identity -> hardware), or a standalone
     light timer (one small form) — the latter repeatable for as many
@@ -463,8 +487,23 @@ class FeedAndWaterOptionsFlow(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        # A Night Feed is its own entry — show (and save) its night fields, not
+        # the tank hardware pickers, so Configure doesn't wipe the night config.
+        is_night = bool(self.entry.options.get(CONF_NIGHT_CHANNELS))
         if user_input is not None:
+            if is_night:
+                options: dict[str, Any] = {
+                    CONF_NIGHT_CHANNELS: user_input[CONF_NIGHT_CHANNELS],
+                    CONF_NIGHT_DIM_CHANNELS: user_input.get(CONF_NIGHT_DIM_CHANNELS, []),
+                    CONF_NIGHT_MODE_SELECTS: user_input.get(CONF_NIGHT_MODE_SELECTS, []),
+                }
+                if user_input.get(CONF_NIGHT_MODE_OPTION):
+                    options[CONF_NIGHT_MODE_OPTION] = user_input[CONF_NIGHT_MODE_OPTION]
+                return self.async_create_entry(data=options)
             return self.async_create_entry(data=user_input)
-        return self.async_show_form(
-            step_id="init", data_schema=_hardware_schema(dict(self.entry.options))
+        schema = (
+            _night_options_schema(dict(self.entry.options))
+            if is_night
+            else _hardware_schema(dict(self.entry.options))
         )
+        return self.async_show_form(step_id="init", data_schema=schema)
