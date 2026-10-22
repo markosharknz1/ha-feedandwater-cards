@@ -41,6 +41,7 @@ VALUE_POWER_LOSS_DELAY = "power_loss_delay"
 VALUE_LAST_WATER_CHANGE_VOLUME = "last_water_change_volume"
 VALUE_LIGHT_TIMER = "light_timer"
 VALUE_NIGHT_LEVEL = "night_level"
+VALUE_NIGHT_TIMER = "night_timer"
 
 # (default, min, max, step, unit) per number entity
 NUMBER_SPECS: dict[str, tuple[float, float, float, float, str]] = {
@@ -57,6 +58,10 @@ NUMBER_SPECS: dict[str, tuple[float, float, float, float, str]] = {
     VALUE_LIGHT_TIMER: (0, 0, 60, 5, "min"),
     # Night Feed viewing-light brightness
     VALUE_NIGHT_LEVEL: (25, 5, 100, 5, "%"),
+    # Night Feed auto-off timer: 0 = stay on until turned off manually. Read
+    # when Night Feed is switched on; on expiry the snapshot is restored (the
+    # schedule resumes), same feel as the Light timer.
+    VALUE_NIGHT_TIMER: (0, 0, 60, 5, "min"),
 }
 
 # "Until I Stop" starts a feed at the max duration rather than a true

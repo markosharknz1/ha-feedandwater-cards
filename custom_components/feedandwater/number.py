@@ -13,6 +13,7 @@ from .const import (
     NUMBER_SPECS,
     VALUE_LIGHT_TIMER,
     VALUE_NIGHT_LEVEL,
+    VALUE_NIGHT_TIMER,
     VALUE_POWER_LOSS_DELAY,
 )
 from .controllers import TankData
@@ -29,7 +30,7 @@ async def async_setup_entry(
             return tank.lights is not None
         if key == VALUE_POWER_LOSS_DELAY:
             return tank.power is not None
-        if key == VALUE_NIGHT_LEVEL:
+        if key in (VALUE_NIGHT_LEVEL, VALUE_NIGHT_TIMER):
             return tank.has_night
         # Everything else belongs to feed/water-change — only for tanks
         # with pause/resume hardware (not lights-only entries).

@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, LIGHTS_OFF
 from .controllers import TankData
@@ -75,7 +76,11 @@ class NightFeedSwitch(FeedAndWaterEntity, RestoreEntity, SwitchEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return {"snapshot": dict(self.tank.night_snapshot)}
+        off_at = self.tank.night_off_at
+        return {
+            "snapshot": dict(self.tank.night_snapshot),
+            "off_at": off_at.isoformat() if off_at else None,
+        }
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self.tank.async_night_on()
@@ -91,4 +96,5 @@ class NightFeedSwitch(FeedAndWaterEntity, RestoreEntity, SwitchEntity):
         last = await self.async_get_last_state()
         if last is not None and last.state == "on" and not self.tank.night_active:
             snapshot = last.attributes.get("snapshot") or {}
-            self.tank.async_night_restore(snapshot)
+            off_at = dt_util.parse_datetime(last.attributes.get("off_at") or "")
+            await self.tank.async_night_restore(snapshot, off_at)

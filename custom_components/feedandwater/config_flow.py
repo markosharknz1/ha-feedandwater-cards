@@ -67,7 +67,7 @@ EQUIPMENT_SELECTOR = selector.EntitySelector(
 # Night Feed switch: percentage-controllable channels — a number entity
 # (a light's per-channel slider) or a light entity (brightness).
 NIGHT_CHANNEL_SELECTOR = selector.EntitySelector(
-    selector.EntitySelectorConfig(domain=["number", "light"], multiple=True)
+    selector.EntitySelectorConfig(domain=["number", "light", "switch"], multiple=True)
 )
 NIGHT_MODE_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain=["select", "input_select"], multiple=True)

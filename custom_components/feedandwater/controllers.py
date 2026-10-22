@@ -47,6 +47,7 @@ from .const import (
     SAFETY_TIMEOUT_HOURS,
     VALUE_LIGHT_TIMER,
     VALUE_NIGHT_LEVEL,
+    VALUE_NIGHT_TIMER,
     VALUE_POWER_LOSS_DELAY,
     VALUE_RETURN_PUMP_FEED_SPEED,
     VALUE_SKIMMER_EXTRA_OFF,
@@ -122,6 +123,10 @@ class TankData:
     night_active: bool = False
     night_snapshot: dict[str, Any] = field(default_factory=dict)
     night_listeners: _Notifier = field(default_factory=_Notifier)
+    # Night Feed auto-off: when a timer is set, the scheduled restore time and
+    # its cancel handle (persisted via the Night Feed switch's attributes).
+    night_off_at: datetime | None = None
+    _night_timer_unsub: Callable[[], None] | None = field(default=None)
     feed: "FeedController" = field(init=False)
     water: "WaterChangeController" = field(init=False)
     power: "PowerLossController | None" = field(init=False, default=None)
@@ -357,6 +362,10 @@ class TankData:
                 "on": state.state == "on",
                 "brightness": state.attributes.get("brightness"),
             }
+        if domain == "switch":
+            # A plain on/off night light (e.g. an AIPAI "Night feeding" switch,
+            # whose own Off resumes the fixture's schedule).
+            return {"domain": "switch", "on": state.state == "on"}
         if domain in ("select", "input_select"):
             return {"domain": domain, "option": state.state}
         try:
@@ -366,6 +375,13 @@ class TankData:
 
     async def _night_set_pct(self, entity_id: str, pct: float) -> None:
         domain = entity_id.split(".", 1)[0]
+        if domain == "switch":
+            # Treat any positive level as "on"; a dim channel (pct 0) turns off.
+            service = "turn_on" if pct > 0 else "turn_off"
+            await self.hass.services.async_call(
+                "switch", service, {"entity_id": entity_id}, blocking=True
+            )
+            return
         if domain == "light":
             if pct <= 0:
                 await self.hass.services.async_call(
@@ -385,6 +401,12 @@ class TankData:
 
     async def _night_restore_one(self, entity_id: str, snap: dict[str, Any]) -> None:
         domain = snap.get("domain")
+        if domain == "switch":
+            service = "turn_on" if snap.get("on") else "turn_off"
+            await self.hass.services.async_call(
+                "switch", service, {"entity_id": entity_id}, blocking=True
+            )
+            return
         if domain == "light":
             if snap.get("on"):
                 data: dict[str, Any] = {"entity_id": entity_id}
@@ -415,12 +437,13 @@ class TankData:
     async def async_night_on(self) -> None:
         if not self.has_night:
             return
+        fresh = not self.night_active
         night = self.option_entities(CONF_NIGHT_CHANNELS)
         dim = self.option_entities(CONF_NIGHT_DIM_CHANNELS)
         selects = self.option_entities(CONF_NIGHT_MODE_SELECTS)
         # Snapshot only on a fresh activation — re-applying while active
         # (e.g. the level slider moved) must not capture our own values.
-        if not self.night_active:
+        if fresh:
             snapshot: dict[str, Any] = {}
             for entity_id in [*night, *dim, *selects]:
                 snap = self._night_read(entity_id)
@@ -443,6 +466,10 @@ class TankData:
         for entity_id in night:
             await self._night_set_pct(entity_id, level)
         self.night_active = True
+        # Start the auto-off timer only on a fresh activation, so retuning the
+        # level while on doesn't restart the countdown.
+        if fresh:
+            self._night_schedule_timer()
         self.night_listeners._notify()
 
     async def async_apply_night_level(self) -> None:
@@ -450,7 +477,30 @@ class TankData:
         if self.night_active:
             await self.async_night_on()
 
+    def _night_cancel_timer(self) -> None:
+        if self._night_timer_unsub:
+            self._night_timer_unsub()
+            self._night_timer_unsub = None
+
+    def _night_schedule_timer(self) -> None:
+        """Arm the auto-off for VALUE_NIGHT_TIMER minutes (0 = no auto-off)."""
+        self._night_cancel_timer()
+        minutes = float(self.values.get(VALUE_NIGHT_TIMER, 0))
+        if minutes > 0:
+            self.night_off_at = dt_util.utcnow() + timedelta(minutes=minutes)
+            self._night_timer_unsub = async_track_point_in_time(
+                self.hass, self._async_night_timer_fired, self.night_off_at
+            )
+        else:
+            self.night_off_at = None
+
+    async def _async_night_timer_fired(self, _now: datetime) -> None:
+        self._night_timer_unsub = None
+        await self.async_night_off()
+
     async def async_night_off(self) -> None:
+        self._night_cancel_timer()
+        self.night_off_at = None
         if not self.night_active and not self.night_snapshot:
             return
         order = [
@@ -466,13 +516,24 @@ class TankData:
         self.night_snapshot = {}
         self.night_listeners._notify()
 
-    @callback
-    def async_night_restore(self, snapshot: dict[str, Any]) -> None:
-        """Re-arm after an HA restart that happened mid-night-feed: keep
-        the switch on and the saved snapshot so the next Off still
-        restores. No commands are re-sent — the light is already lit."""
+    async def async_night_restore(
+        self, snapshot: dict[str, Any], off_at: datetime | None
+    ) -> None:
+        """Re-arm after an HA restart that happened mid-night-feed: keep the
+        switch on and the saved snapshot so the next Off still restores. No
+        commands are re-sent — the light is already lit. If an auto-off timer
+        was pending, re-arm it for the remainder, or restore now if it already
+        elapsed while HA was down."""
         self.night_active = True
         self.night_snapshot = dict(snapshot)
+        if off_at is not None:
+            if off_at <= dt_util.utcnow():
+                await self.async_night_off()
+                return
+            self.night_off_at = off_at
+            self._night_timer_unsub = async_track_point_in_time(
+                self.hass, self._async_night_timer_fired, off_at
+            )
         self.night_listeners._notify()
 
     @callback
@@ -483,6 +544,7 @@ class TankData:
             self.power.async_shutdown()
         if self.lights:
             self.lights.async_shutdown()
+        self._night_cancel_timer()
         for entity_id in list(self._pump_pause_unsubs):
             self._cancel_pump_timer(entity_id)
         for unsub in self._verify_unsubs.values():

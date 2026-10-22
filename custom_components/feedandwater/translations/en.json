@@ -225,6 +225,12 @@
       },
       "light_timer": {
         "name": "Light timer"
+      },
+      "night_level": {
+        "name": "Night level"
+      },
+      "night_timer": {
+        "name": "Night timer"
       }
     },
     "button": {
