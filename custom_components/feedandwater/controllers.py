@@ -6,6 +6,7 @@ must stay identical to the blueprints unless both are changed together.
 """
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -17,6 +18,7 @@ from homeassistant.helpers.event import (
     async_call_later,
     async_track_point_in_time,
     async_track_state_change_event,
+    async_track_time_interval,
 )
 from homeassistant.util import dt as dt_util
 
@@ -58,6 +60,9 @@ from .const import (
     WC_RESTARTING_SKIMMER,
     WC_RESTARTING_WAVEMAKERS,
 )
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class _Notifier:
@@ -117,6 +122,10 @@ class TankData:
     # the state captured at schedule time, so a quick off→on flip (e.g. a
     # short pump pause) can't leave a stale check raising a false warning.
     _verify_expected: dict[str, str] = field(default_factory=dict)
+    # Watchdog: consecutive sweeps each entity has disagreed with its
+    # commanded state, and the interval-timer cancel handle.
+    _watchdog_retries: dict[str, int] = field(default_factory=dict)
+    _watchdog_unsub: Callable[[], None] | None = field(default=None)
     # Night Feed switch: snapshot of every touched entity taken at turn-on
     # so turn-off restores exactly what was there (JSON-safe — it rides on
     # the switch entity's restored attributes across HA restarts).
@@ -139,6 +148,12 @@ class TankData:
             self.power = PowerLossController(self)
         if self.entry.options.get(CONF_LIGHTS):
             self.lights = LightController(self)
+        if self.watched_onoff_entities():
+            self._watchdog_unsub = async_track_time_interval(
+                self.hass,
+                self._async_watchdog_sweep,
+                timedelta(seconds=self.WATCHDOG_INTERVAL_S),
+            )
 
     @property
     def slug(self) -> str:
@@ -271,6 +286,119 @@ class TankData:
     def equipment_entities(self) -> list[str]:
         """Entities watched by the Equipment status card (any domain)."""
         return self.option_entities(CONF_EQUIPMENT)
+
+    # --- Watchdog --------------------------------------------------------
+    #
+    # The 15s post-command verification is a one-shot: it flags a device
+    # that ignored a command but never fixes it, and a device that dies
+    # BETWEEN commands (a resumed skimmer dropping off WiFi an hour later)
+    # is never rechecked. The watchdog closes both gaps: every sweep it
+    # (1) forces each watched device's own integration to actually poll
+    # the hardware (homeassistant.update_entity — this is what flips a
+    # dead-but-cached smart plug to 'unavailable'), then (2) compares
+    # every entity against the state this integration last commanded and
+    # RE-SENDS the command on a mismatch. Transient blips self-heal; a
+    # device still wrong after two consecutive sweeps joins
+    # self.unresponsive (red card warnings + the problems sensor), and
+    # keeps being retried each sweep so it recovers by itself when the
+    # device comes back.
+
+    WATCHDOG_INTERVAL_S = 120
+
+    def watched_onoff_entities(self) -> list[str]:
+        """Every on/off device this entry manages or watches."""
+        seen: list[str] = []
+        for key in (
+            CONF_WAVEMAKERS,
+            CONF_SKIMMERS,
+            CONF_RETURN_PUMPS,
+            CONF_LIGHTS,
+            CONF_EQUIPMENT,
+        ):
+            for entity_id in self.option_entities(key):
+                if (
+                    entity_id.split(".", 1)[0] in ("switch", "fan", "light")
+                    and entity_id not in seen
+                ):
+                    seen.append(entity_id)
+        for entity_id in self.monitored_speed_entities():
+            if (
+                entity_id.split(".", 1)[0] in ("switch", "fan")
+                and entity_id not in seen
+            ):
+                seen.append(entity_id)
+        return seen
+
+    @callback
+    def async_drop_claims(self, entity_ids: list[str]) -> None:
+        """Stop re-asserting these entities. Called when a controller
+        concedes a state (the lights verify reverting its stage, or an
+        external toggle it honors) — the watchdog must not keep fighting
+        for a state the feature itself has given up on."""
+        for entity_id in entity_ids:
+            self._verify_expected.pop(entity_id, None)
+            self._watchdog_retries.pop(entity_id, None)
+
+    async def _async_watchdog_sweep(self, _now: datetime) -> None:
+        # 1. Force-refresh so the comparison below sees real device state,
+        # not a stale cache. Unknown entities are skipped (update_entity
+        # rejects them); failures are logged, never fatal.
+        watched = [
+            entity_id
+            for entity_id in self.watched_onoff_entities()
+            if self.hass.states.get(entity_id) is not None
+        ]
+        if watched:
+            try:
+                await self.hass.services.async_call(
+                    "homeassistant",
+                    "update_entity",
+                    {"entity_id": watched},
+                    blocking=True,
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Watchdog refresh failed: %s", err)
+
+        # 2. Reconcile commanded vs actual, retrying mismatches.
+        changed = False
+        for entity_id, expected in list(self._verify_expected.items()):
+            if entity_id.split(".", 1)[0] not in ("switch", "fan", "light"):
+                continue
+            state = self.hass.states.get(entity_id)
+            ok = state is not None and state.state == expected
+            if ok:
+                self._watchdog_retries.pop(entity_id, None)
+                if entity_id in self.unresponsive:
+                    self.unresponsive.discard(entity_id)
+                    changed = True
+                continue
+            retries = self._watchdog_retries.get(entity_id, 0) + 1
+            self._watchdog_retries[entity_id] = retries
+            service = "turn_on" if expected == "on" else "turn_off"
+            _LOGGER.warning(
+                "Watchdog: %s should be %s but is %s — re-sending %s (attempt %d)",
+                entity_id,
+                expected,
+                state.state if state else "missing",
+                service,
+                retries,
+            )
+            try:
+                await self.hass.services.async_call(
+                    "homeassistant",
+                    service,
+                    {"entity_id": entity_id},
+                    blocking=True,
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Watchdog retry failed for %s: %s", entity_id, err)
+            # One bad sweep is just a blip being fixed; two in a row is a
+            # real problem worth surfacing.
+            if retries >= 2 and entity_id not in self.unresponsive:
+                self.unresponsive.add(entity_id)
+                changed = True
+        if changed:
+            self.unresponsive_listeners._notify()
 
     def read_speed(self, entity_id: str) -> float | None:
         """Current value of a speed control, or None if unreadable."""
@@ -550,6 +678,9 @@ class TankData:
         for unsub in self._verify_unsubs.values():
             unsub()
         self._verify_unsubs.clear()
+        if self._watchdog_unsub:
+            self._watchdog_unsub()
+            self._watchdog_unsub = None
 
 
 class FeedController(_Notifier):
@@ -897,10 +1028,12 @@ class LightController(_Notifier):
                 self._cancel_timer()
                 self.stage = LIGHTS_OFF
                 self.off_at = None
+                self.tank.async_drop_claims(self.tank.option_entities(CONF_LIGHTS))
                 self._notify()
             elif not expect_on and actually_on and self.stage == LIGHTS_OFF:
                 self.stage = LIGHTS_ON
                 self.off_at = None
+                self.tank.async_drop_claims(self.tank.option_entities(CONF_LIGHTS))
                 self._notify()
 
         self._unsub_verify = async_call_later(
@@ -947,12 +1080,14 @@ class LightController(_Notifier):
             self._cancel_timer()
             self.stage = LIGHTS_OFF
             self.off_at = None
+            self.tank.async_drop_claims(self.tank.option_entities(CONF_LIGHTS))
             self._notify()
         elif any_on and self.stage == LIGHTS_OFF:
             # Turned on externally — reflect it, but don't start a timer the
             # user never asked for.
             self.stage = LIGHTS_ON
             self.off_at = None
+            self.tank.async_drop_claims(self.tank.option_entities(CONF_LIGHTS))
             self._notify()
 
     def _schedule(self) -> None:

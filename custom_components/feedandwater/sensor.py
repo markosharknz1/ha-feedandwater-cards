@@ -48,6 +48,8 @@ async def async_setup_entry(
         entities.append(MaintenanceSensor(tank))
     if tank.equipment_entities():
         entities.append(EquipmentSensor(tank))
+    if tank.watched_onoff_entities():
+        entities.append(ProblemsSensor(tank))
     async_add_entities(entities)
 
 
@@ -375,6 +377,43 @@ class EquipmentSensor(FeedAndWaterEntity, SensorEntity):
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, self.tank.equipment_entities(), _changed
+            )
+        )
+
+
+class ProblemsSensor(FeedAndWaterEntity, SensorEntity):
+    """How many of this entry's devices are not doing what they were told
+    (commanded on/off, device disagrees after verification + watchdog
+    retries). 0 = all good — automate a phone notification on > 0."""
+
+    _attr_icon = "mdi:alert-circle-outline"
+    _attr_native_unit_of_measurement = "devices"
+
+    def __init__(self, tank: TankData) -> None:
+        super().__init__(tank, "sensor", "problems")
+
+    @property
+    def native_value(self) -> int:
+        return len(self.tank.unresponsive)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        names = []
+        for entity_id in sorted(self.tank.unresponsive):
+            state = self.hass.states.get(entity_id)
+            names.append(
+                (state and state.attributes.get("friendly_name")) or entity_id
+            )
+        return {
+            "entities": sorted(self.tank.unresponsive),
+            "names": names,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.tank.unresponsive_listeners.async_add_listener(
+                self.async_write_ha_state
             )
         )
 
