@@ -1428,6 +1428,530 @@ class FeedAndWaterEquipmentCardEditor extends HTMLElement {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* RedSea device cards (ReefMat / ReefATO+)                            */
+/*                                                                    */
+/* These discover devices straight from the Red Sea ReefBeat          */
+/* integration (Elwinmage/ha-reefbeat-component, platform "redsea")   */
+/* via HA's entity registry — zero config. Each entity is classified  */
+/* by its registry translation_key when the frontend exposes it, with */
+/* an entity_id-suffix fallback, so renamed entities still resolve.   */
+/* ------------------------------------------------------------------ */
+
+function redseaDevices(hass, roleSpec) {
+  // roleSpec: {role: [domains...]} — collect matching entities per device.
+  if (!hass || !hass.entities) return [];
+  const roles = Object.keys(roleSpec).sort((a, b) => b.length - a.length);
+  const byDevice = new Map();
+  for (const [entityId, entry] of Object.entries(hass.entities)) {
+    if (entry.platform !== "redsea" || !entry.device_id) continue;
+    const dot = entityId.indexOf(".");
+    const domain = entityId.slice(0, dot);
+    const objectId = entityId.slice(dot + 1);
+    const tk = entry.translation_key;
+    let role = null;
+    for (const r of roles) {
+      if (!roleSpec[r].includes(domain)) continue;
+      if (tk === r || (!tk && (objectId === r || objectId.endsWith("_" + r)))) {
+        role = r;
+        break;
+      }
+    }
+    if (!role) continue;
+    if (!byDevice.has(entry.device_id)) {
+      byDevice.set(entry.device_id, { id: entry.device_id, name: null, entities: {} });
+    }
+    const dev = byDevice.get(entry.device_id);
+    if (dev.entities[role] === undefined) dev.entities[role] = entityId;
+    if (!dev.name && hass.devices && hass.devices[entry.device_id]) {
+      const d = hass.devices[entry.device_id];
+      dev.name = d.name_by_user || d.name;
+    }
+  }
+  const out = [...byDevice.values()];
+  for (const d of out) if (!d.name) d.name = "RedSea device";
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+const rsState = (hass, dev, role) => {
+  const id = dev.entities[role];
+  return id ? hass.states[id] : null;
+};
+const rsNum = (st) => {
+  if (!st || st.state === "unavailable" || st.state === "unknown") return null;
+  const n = Number(st.state);
+  return Number.isFinite(n) ? n : null;
+};
+const rsUnavailable = (hass, dev) =>
+  Object.values(dev.entities).some((id) => {
+    const st = hass.states[id];
+    return !st || st.state === "unavailable";
+  });
+const humanize = (v) => (v ? String(v).replace(/_/g, " ") : v);
+
+const RS_SHARED_CSS = `
+  ha-card { padding: 12px 16px; height: 100%; box-sizing: border-box; }
+  .heading { font-size: 1.1em; font-weight: 500; margin-bottom: 8px; }
+  .drow { padding: 10px 0; }
+  .drow + .drow { border-top: 1px solid var(--divider-color); }
+  .top { display: flex; align-items: baseline; gap: 10px; }
+  .name { font-weight: 500; flex: 1; min-width: 0; }
+  .big { font-size: 1.35em; font-weight: 500; white-space: nowrap; }
+  .big .unit { font-size: 0.65em; color: var(--secondary-text-color); }
+  .sub { color: var(--secondary-text-color); font-size: 0.88em; margin-top: 2px; }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 0.9em;
+            white-space: nowrap; }
+  .status::before { content: ""; width: 9px; height: 9px; border-radius: 50%;
+                    background: var(--secondary-text-color); flex: none; }
+  .status.good { color: var(--success-color, #43a047); }
+  .status.good::before { background: var(--success-color, #43a047); }
+  .status.warn-s { color: var(--warning-color, #ffa600); }
+  .status.warn-s::before { background: var(--warning-color, #ffa600); }
+  .status.bad { color: var(--error-color, #f44336); font-weight: 500; }
+  .status.bad::before { background: var(--error-color, #f44336); }
+  .warn { color: var(--error-color, #f44336); font-size: 0.88em; margin-top: 4px; }
+  .buttons { display: flex; align-items: center; gap: 8px; margin-top: 8px;
+             flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 16px;
+          padding: 6px 16px; cursor: pointer; font: inherit; font-size: 0.92em;
+          border: 1px solid var(--divider-color);
+          background: var(--secondary-background-color);
+          color: var(--primary-text-color); flex: none; }
+  .chip.go { background: var(--primary-color); color: var(--text-primary-color, #fff);
+             border-color: var(--primary-color); }
+  .chip.armed { background: var(--error-color, #f44336); color: #fff;
+                border-color: var(--error-color, #f44336); }
+  .chip.on { background: var(--primary-color); color: var(--text-primary-color, #fff);
+             border-color: var(--primary-color); }
+  .empty { color: var(--secondary-text-color); font-size: 0.9em; padding: 4px 0; }
+`;
+
+const MAT_ROLES = {
+  days_till_end_of_roll: ["sensor"],
+  remaining_length: ["sensor"],
+  today_usage: ["sensor"],
+  daily_average_usage: ["sensor"],
+  unclean_sensor: ["binary_sensor"],
+  advance: ["button"],
+  new_roll: ["button"],
+  auto_advance: ["switch"],
+};
+
+class FeedAndWaterReefMatCard extends HTMLElement {
+  /* ReefMat card: per-mat fleece status — days left on the roll front
+   * and center, usage line, dirty-sensor warning — with Advance and a
+   * two-tap New Roll (first tap arms it, so a stray touch can't reset
+   * the roll counter). */
+
+  static getConfigElement() {
+    return document.createElement("feedandwater-reefmat-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._armed = null; // entity_id of the armed New Roll button
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  _devices() {
+    const want =
+      this._config.devices && this._config.devices.length
+        ? new Set(this._config.devices)
+        : null;
+    return redseaDevices(this._hass, MAT_ROLES).filter(
+      (d) =>
+        (d.entities.new_roll || d.entities.days_till_end_of_roll) &&
+        (!want || want.has(d.id))
+    );
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    const hass = this._hass;
+    const labels = this._config.labels || {};
+
+    let body = "";
+    if (!hass) {
+      body = `<div class="empty">Waiting for Home Assistant…</div>`;
+    } else {
+      const devs = this._devices();
+      body = devs.length
+        ? devs
+            .map((d) => {
+              const days = rsNum(rsState(hass, d, "days_till_end_of_roll"));
+              const len = rsNum(rsState(hass, d, "remaining_length"));
+              const today = rsNum(rsState(hass, d, "today_usage"));
+              const avg = rsNum(rsState(hass, d, "daily_average_usage"));
+              const unclean = rsState(hass, d, "unclean_sensor");
+              const off = rsUnavailable(hass, d);
+              const big =
+                days !== null
+                  ? `${Math.round(days)}<span class="unit"> days left</span>`
+                  : "";
+              const subBits = [];
+              if (len !== null) subBits.push(`${len.toFixed(1)} m on the roll`);
+              if (today !== null) subBits.push(`today ${today.toFixed(2)} m`);
+              if (avg !== null) subBits.push(`avg ${avg.toFixed(2)} m/day`);
+              let warn = "";
+              if (off) warn = `<div class="warn">⚠ Unavailable — check the ReefMat's connection</div>`;
+              else if (unclean && unclean.state === "on")
+                warn = `<div class="warn">⚠ Roll sensor needs cleaning</div>`;
+              const armed = this._armed === d.entities.new_roll;
+              const buttons = [];
+              if (d.entities.advance)
+                buttons.push(
+                  `<button class="chip go" data-press="${d.entities.advance}">Advance</button>`
+                );
+              if (d.entities.new_roll)
+                buttons.push(
+                  armed
+                    ? `<button class="chip armed" data-newroll="${d.entities.new_roll}">Tap again — new roll fitted</button>`
+                    : `<button class="chip" data-newroll="${d.entities.new_roll}">New roll…</button>`
+                );
+              return `<div class="drow">
+                  <div class="top">
+                    <span class="name">${labels[d.id] || d.name}</span>
+                    <span class="big">${big}</span>
+                  </div>
+                  ${subBits.length ? `<div class="sub">${subBits.join(" · ")}</div>` : ""}
+                  ${warn}
+                  ${buttons.length ? `<div class="buttons">${buttons.join("")}</div>` : ""}
+                </div>`;
+            })
+            .join("")
+        : `<div class="empty">No ReefMat found. This card needs the Red Sea
+            ReefBeat integration (Elwinmage/ha-reefbeat-component) with your
+            ReefMat added.</div>`;
+    }
+
+    const heading = this._config.title
+      ? `<div class="heading">${this._config.title}</div>`
+      : "";
+    this.shadowRoot.innerHTML = `<style>${RS_SHARED_CSS}</style><ha-card>${heading}${body}</ha-card>`;
+
+    this.shadowRoot.querySelectorAll("[data-press]").forEach((el) => {
+      el.addEventListener("click", () => {
+        this._hass.callService("button", "press", { entity_id: el.dataset.press });
+      });
+    });
+    this.shadowRoot.querySelectorAll("[data-newroll]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const id = el.dataset.newroll;
+        if (this._armed === id) {
+          this._armed = null;
+          this._hass.callService("button", "press", { entity_id: id });
+        } else {
+          this._armed = id;
+          // Disarm by itself if the second tap never comes.
+          setTimeout(() => {
+            if (this._armed === id) {
+              this._armed = null;
+              this._render();
+            }
+          }, 6000);
+        }
+        this._render();
+      });
+    });
+  }
+}
+
+const ATO_ROLES = {
+  days_till_empty: ["sensor"],
+  volume_left: ["sensor"],
+  water_level: ["sensor", "binary_sensor"],
+  leak_sensor_status: ["sensor"],
+  today_fills: ["sensor"],
+  today_volume_usage: ["sensor"],
+  is_pump_on: ["binary_sensor"],
+  fill: ["button"],
+  stop_fill: ["button"],
+  resume: ["button"],
+  auto_fill: ["switch"],
+};
+
+class FeedAndWaterReefAtoCard extends HTMLElement {
+  /* ReefATO+ card: water level status, reservoir days/volume left,
+   * today's fills, leak alarm — with Fill / Stop / Resume buttons and
+   * the Auto fill toggle. */
+
+  static getConfigElement() {
+    return document.createElement("feedandwater-reefato-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  _devices() {
+    const want =
+      this._config.devices && this._config.devices.length
+        ? new Set(this._config.devices)
+        : null;
+    return redseaDevices(this._hass, ATO_ROLES).filter(
+      (d) =>
+        (d.entities.auto_fill || d.entities.stop_fill || d.entities.days_till_empty) &&
+        (!want || want.has(d.id))
+    );
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    const hass = this._hass;
+    const labels = this._config.labels || {};
+
+    let body = "";
+    if (!hass) {
+      body = `<div class="empty">Waiting for Home Assistant…</div>`;
+    } else {
+      const devs = this._devices();
+      body = devs.length
+        ? devs
+            .map((d) => {
+              const off = rsUnavailable(hass, d);
+              const level = rsState(hass, d, "water_level");
+              const leak = rsState(hass, d, "leak_sensor_status");
+              const pumpOn = rsState(hass, d, "is_pump_on");
+              const days = rsNum(rsState(hass, d, "days_till_empty"));
+              const volLeft = rsNum(rsState(hass, d, "volume_left"));
+              const fills = rsNum(rsState(hass, d, "today_fills"));
+              const todayVol = rsNum(rsState(hass, d, "today_volume_usage"));
+              const autoFill = rsState(hass, d, "auto_fill");
+
+              // Water level -> coloured status words
+              let cls = "off";
+              let text = "No level reading";
+              if (off) {
+                cls = "bad";
+                text = "Unavailable";
+              } else if (level) {
+                const v = level.state;
+                if (v === "on" || v === "off") {
+                  // binary water_level sensor
+                  cls = v === "on" ? "good" : "warn-s";
+                  text = v === "on" ? "Level OK" : "Level low";
+                } else if (v.startsWith("desired")) {
+                  cls = "good";
+                  text = "At level";
+                } else if (v === "error") {
+                  cls = "bad";
+                  text = "Sensor error";
+                } else {
+                  cls = "warn-s";
+                  text = "Level " + humanize(v);
+                }
+              }
+              const big =
+                days !== null
+                  ? `${Math.round(days)}<span class="unit"> days of top-up</span>`
+                  : "";
+              const subBits = [];
+              if (volLeft !== null)
+                subBits.push(
+                  volLeft >= 1000
+                    ? `${(volLeft / 1000).toFixed(1)} L in reservoir`
+                    : `${Math.round(volLeft)} mL in reservoir`
+                );
+              if (fills !== null) subBits.push(`today ${Math.round(fills)} fills`);
+              if (todayVol !== null) subBits.push(`${Math.round(todayVol)} mL`);
+              if (pumpOn && pumpOn.state === "on") subBits.push("pump running");
+              let warn = "";
+              if (!off && leak && leak.state !== "dry" && leak.state !== "unknown")
+                warn = `<div class="warn">⚠ Leak detected: ${humanize(leak.state)}</div>`;
+              else if (off)
+                warn = `<div class="warn">⚠ Unavailable — check the ATO's connection</div>`;
+
+              const buttons = [];
+              if (d.entities.fill)
+                buttons.push(`<button class="chip go" data-press="${d.entities.fill}">Fill</button>`);
+              if (d.entities.stop_fill)
+                buttons.push(`<button class="chip" data-press="${d.entities.stop_fill}">Stop</button>`);
+              if (d.entities.resume)
+                buttons.push(`<button class="chip" data-press="${d.entities.resume}">Resume</button>`);
+              if (autoFill)
+                buttons.push(
+                  `<button class="chip ${autoFill.state === "on" ? "on" : ""}"
+                     data-toggle="${d.entities.auto_fill}">Auto fill ${autoFill.state === "on" ? "on" : "off"}</button>`
+                );
+              return `<div class="drow">
+                  <div class="top">
+                    <span class="name">${labels[d.id] || d.name}</span>
+                    <span class="status ${cls}">${text}</span>
+                    <span class="big">${big}</span>
+                  </div>
+                  ${subBits.length ? `<div class="sub">${subBits.join(" · ")}</div>` : ""}
+                  ${warn}
+                  ${buttons.length ? `<div class="buttons">${buttons.join("")}</div>` : ""}
+                </div>`;
+            })
+            .join("")
+        : `<div class="empty">No ReefATO+ found. This card needs the Red Sea
+            ReefBeat integration (Elwinmage/ha-reefbeat-component) with your
+            ReefATO+ added.</div>`;
+    }
+
+    const heading = this._config.title
+      ? `<div class="heading">${this._config.title}</div>`
+      : "";
+    this.shadowRoot.innerHTML = `<style>${RS_SHARED_CSS}</style><ha-card>${heading}${body}</ha-card>`;
+
+    this.shadowRoot.querySelectorAll("[data-press]").forEach((el) => {
+      el.addEventListener("click", () => {
+        this._hass.callService("button", "press", { entity_id: el.dataset.press });
+      });
+    });
+    this.shadowRoot.querySelectorAll("[data-toggle]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const id = el.dataset.toggle;
+        const st = this._hass.states[id];
+        this._hass.callService(
+          "switch",
+          st && st.state === "on" ? "turn_off" : "turn_on",
+          { entity_id: id }
+        );
+      });
+    });
+  }
+}
+
+class FeedAndWaterRedSeaEditor extends HTMLElement {
+  /* Shared editor for the ReefMat / ReefATO+ cards: title, device
+   * checkboxes, per-device labels. Subclasses set _roles/_signature. */
+
+  setConfig(config) {
+    this._config = { ...(config || {}) };
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  _emit() {
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config: this._config },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  _render() {
+    if (!this._config) this._config = {};
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    if (!this._hass) {
+      this.shadowRoot.innerHTML = `<div>Loading…</div>`;
+      return;
+    }
+    const devices = redseaDevices(this._hass, this._roles).filter(this._signature);
+    const chosen = new Set(this._config.devices || []);
+    const labels = this._config.labels || {};
+    const rows = devices
+      .map(
+        (d) => `<div class="pump-row">
+          <input type="checkbox" value="${d.id}"
+            ${chosen.size === 0 || chosen.has(d.id) ? "checked" : ""}>
+          <span class="pname">${d.name}</span>
+          <input type="text" class="label-input" placeholder="Label"
+            data-did="${d.id}" value="${(labels[d.id] || "").replace(/"/g, "&quot;")}">
+        </div>`
+      )
+      .join("");
+    this.shadowRoot.innerHTML = `
+      <style>
+        .wrap { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+        .hint { color: var(--secondary-text-color); font-size: 0.88em; }
+        .pump-row { display: flex; align-items: center; gap: 8px; }
+        .pname { flex: 1; min-width: 0; }
+        input[type=text] { padding: 6px 8px; font: inherit;
+          background: var(--card-background-color); color: var(--primary-text-color);
+          border: 1px solid var(--divider-color); border-radius: 4px; }
+        .label-input { flex: 0 0 10em; }
+      </style>
+      <div class="wrap">
+        <label>Title (optional)
+          <input type="text" id="title" value="${(this._config.title || "").replace(/"/g, "&quot;")}"></label>
+        <div>Devices shown ${devices.length ? "" : `<span class='hint'>(none found — install the Red Sea ReefBeat integration and add your ${this._kind})</span>`}</div>
+        ${rows}
+      </div>`;
+
+    this.shadowRoot.getElementById("title").addEventListener("input", (ev) => {
+      this._config.title = ev.target.value;
+      this._emit();
+    });
+    this.shadowRoot.querySelectorAll("input[type=checkbox][value]").forEach((el) => {
+      el.addEventListener("change", () => {
+        const checked = [...this.shadowRoot.querySelectorAll("input[type=checkbox][value]")]
+          .filter((c) => c.checked)
+          .map((c) => c.value);
+        this._config.devices = checked.length === devices.length ? [] : checked;
+        this._emit();
+      });
+    });
+    this.shadowRoot.querySelectorAll(".label-input").forEach((el) => {
+      el.addEventListener("input", () => {
+        const labels = { ...(this._config.labels || {}) };
+        if (el.value.trim()) labels[el.dataset.did] = el.value.trim();
+        else delete labels[el.dataset.did];
+        this._config.labels = labels;
+        this._emit();
+      });
+    });
+  }
+}
+
+class FeedAndWaterReefMatCardEditor extends FeedAndWaterRedSeaEditor {
+  constructor() {
+    super();
+    this._roles = MAT_ROLES;
+    this._kind = "ReefMat";
+    this._signature = (d) => d.entities.new_roll || d.entities.days_till_end_of_roll;
+  }
+}
+
+class FeedAndWaterReefAtoCardEditor extends FeedAndWaterRedSeaEditor {
+  constructor() {
+    super();
+    this._roles = ATO_ROLES;
+    this._kind = "ReefATO+";
+    this._signature = (d) =>
+      d.entities.auto_fill || d.entities.stop_fill || d.entities.days_till_empty;
+  }
+}
+
+
 class FeedAndWaterMaintenanceCard extends HTMLElement {
   /* Maintenance card: repeatable "mark it done" tasks (fleece roll, ATO
    * reset, filter socks…) — time since last done, an optional live status
@@ -1656,6 +2180,16 @@ customElements.define(
   FeedAndWaterMaintenanceCardEditor
 );
 customElements.define("feedandwater-equipment-card", FeedAndWaterEquipmentCard);
+customElements.define("feedandwater-reefmat-card", FeedAndWaterReefMatCard);
+customElements.define(
+  "feedandwater-reefmat-card-editor",
+  FeedAndWaterReefMatCardEditor
+);
+customElements.define("feedandwater-reefato-card", FeedAndWaterReefAtoCard);
+customElements.define(
+  "feedandwater-reefato-card-editor",
+  FeedAndWaterReefAtoCardEditor
+);
 customElements.define(
   "feedandwater-equipment-card-editor",
   FeedAndWaterEquipmentCardEditor
@@ -1686,6 +2220,18 @@ window.customCards.push(
     name: "Reef Feed & Water — Speeds",
     description:
       "Per-pump speed readouts with Off/On controls and off-for-X-minutes timers, filterable and relabelable — e.g. just the wavemakers.",
+  },
+  {
+    type: "feedandwater-reefmat-card",
+    name: "Reef Feed & Water — ReefMat",
+    description:
+      "Fleece roll status for RedSea ReefMats (via the ReefBeat integration): days left, usage, dirty-sensor warning, Advance and a two-tap New Roll.",
+  },
+  {
+    type: "feedandwater-reefato-card",
+    name: "Reef Feed & Water — ReefATO+",
+    description:
+      "RedSea ReefATO+ control (via the ReefBeat integration): water level, reservoir days left, today's fills, leak alarm, Fill/Stop/Resume and the Auto fill toggle.",
   },
   {
     type: "feedandwater-equipment-card",
