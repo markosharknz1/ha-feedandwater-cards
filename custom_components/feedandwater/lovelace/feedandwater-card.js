@@ -1952,6 +1952,223 @@ class FeedAndWaterReefAtoCardEditor extends FeedAndWaterRedSeaEditor {
 }
 
 
+const DOSE_ROLES = {
+  head_state: ["sensor"],
+  supplement: ["sensor"],
+  remaining_days: ["sensor"],
+  daily_dose: ["sensor"],
+  doses_today: ["sensor"],
+  auto_dosed_today: ["sensor"],
+  manual_dosed_today: ["sensor"],
+  manual_head_volume: ["number"],
+  manual_head: ["button"],
+  schedule_enabled: ["switch"],
+};
+
+class FeedAndWaterReefDoseCard extends HTMLElement {
+  /* ReefDose card: one row per dosing head (ReefBeat models each head
+   * as its own HA device, "Doser head N"). Shows the supplement, head
+   * state, container days left and today's dosing, with a schedule
+   * toggle and a manual dose: -/+ steppers set the volume (sliders are
+   * useless when the entity range is 0-300 mL and real doses are
+   * single digits) and the Dose button is two-tap armed so chemicals
+   * never go in from a stray touch. */
+
+  static getConfigElement() {
+    return document.createElement("feedandwater-reefdose-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._armed = null; // entity_id of the armed Dose button
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  _devices() {
+    const want =
+      this._config.devices && this._config.devices.length
+        ? new Set(this._config.devices)
+        : null;
+    return redseaDevices(this._hass, DOSE_ROLES).filter(
+      (d) =>
+        (d.entities.manual_head || d.entities.supplement) &&
+        (!want || want.has(d.id))
+    );
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    const hass = this._hass;
+    const labels = this._config.labels || {};
+
+    const extra = `
+      .supp { color: var(--secondary-text-color); font-size: 0.88em; }
+      .stepper { display: inline-flex; align-items: center; gap: 2px; }
+      .stepper .chip { padding: 6px 12px; }
+      .vol { min-width: 4.2em; text-align: center; font-weight: 500; }
+    `;
+
+    let body = "";
+    if (!hass) {
+      body = `<div class="empty">Waiting for Home Assistant…</div>`;
+    } else {
+      const devs = this._devices();
+      body = devs.length
+        ? devs
+            .map((d) => {
+              const off = rsUnavailable(hass, d);
+              const headState = rsState(hass, d, "head_state");
+              const supp = rsState(hass, d, "supplement");
+              const days = rsNum(rsState(hass, d, "remaining_days"));
+              const daily = rsNum(rsState(hass, d, "daily_dose"));
+              const doses = rsNum(rsState(hass, d, "doses_today"));
+              const auto = rsNum(rsState(hass, d, "auto_dosed_today"));
+              const manual = rsNum(rsState(hass, d, "manual_dosed_today"));
+              const sched = rsState(hass, d, "schedule_enabled");
+              const volState = rsState(hass, d, "manual_head_volume");
+
+              let cls = "off";
+              let text = "";
+              if (off) {
+                cls = "bad";
+                text = "Unavailable";
+              } else if (headState) {
+                const v = String(headState.state).toLowerCase();
+                if (v === "ok" || v === "on" || v === "enabled" || v === "dosing") {
+                  cls = "good";
+                  text = v === "dosing" ? "Dosing" : "OK";
+                } else {
+                  cls = "warn-s";
+                  text = humanize(headState.state);
+                }
+              }
+              const big =
+                days !== null
+                  ? `${Math.round(days)}<span class="unit"> days left</span>`
+                  : "";
+              const subBits = [];
+              if (daily !== null) subBits.push(`${daily.toFixed(1)} mL/day scheduled`);
+              if (doses !== null) subBits.push(`today ${Math.round(doses)} doses`);
+              const dosedToday = (auto || 0) + (manual || 0);
+              if (auto !== null || manual !== null)
+                subBits.push(`${dosedToday.toFixed(1)} mL dosed`);
+              const warn = off
+                ? `<div class="warn">⚠ Unavailable — check the doser's connection</div>`
+                : "";
+
+              const buttons = [];
+              if (sched)
+                buttons.push(
+                  `<button class="chip ${sched.state === "on" ? "on" : ""}"
+                     data-toggle="${d.entities.schedule_enabled}">Schedule ${sched.state === "on" ? "on" : "off"}</button>`
+                );
+              if (volState && d.entities.manual_head) {
+                const vol = rsNum(volState) || 0;
+                const armed = this._armed === d.entities.manual_head;
+                buttons.push(`<span class="stepper">
+                    <button class="chip" data-step="-1" data-vol="${d.entities.manual_head_volume}">−</button>
+                    <span class="vol">${vol.toFixed(1)} mL</span>
+                    <button class="chip" data-step="1" data-vol="${d.entities.manual_head_volume}">+</button>
+                  </span>`);
+                buttons.push(
+                  armed
+                    ? `<button class="chip armed" data-dose="${d.entities.manual_head}">Tap again — dose ${vol.toFixed(1)} mL</button>`
+                    : `<button class="chip go" data-dose="${d.entities.manual_head}">Dose…</button>`
+                );
+              }
+              const suppLine =
+                supp && supp.state && supp.state !== "unknown"
+                  ? `<div class="supp">${supp.state}</div>`
+                  : "";
+              return `<div class="drow">
+                  <div class="top">
+                    <span class="name">${labels[d.id] || d.name}</span>
+                    <span class="status ${cls}">${text}</span>
+                    <span class="big">${big}</span>
+                  </div>
+                  ${suppLine}
+                  ${subBits.length ? `<div class="sub">${subBits.join(" · ")}</div>` : ""}
+                  ${warn}
+                  ${buttons.length ? `<div class="buttons">${buttons.join("")}</div>` : ""}
+                </div>`;
+            })
+            .join("")
+        : `<div class="empty">No ReefDose heads found. This card needs the
+            Red Sea ReefBeat integration (Elwinmage/ha-reefbeat-component)
+            with your ReefDose added.</div>`;
+    }
+
+    const heading = this._config.title
+      ? `<div class="heading">${this._config.title}</div>`
+      : "";
+    this.shadowRoot.innerHTML = `<style>${RS_SHARED_CSS}${extra}</style><ha-card>${heading}${body}</ha-card>`;
+
+    this.shadowRoot.querySelectorAll("[data-step]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const id = el.dataset.vol;
+        const st = this._hass.states[id];
+        const cur = st ? Number(st.state) || 0 : 0;
+        const max = (st && st.attributes.max) || 300;
+        const next = Math.min(max, Math.max(0, cur + Number(el.dataset.step)));
+        this._hass.callService("number", "set_value", { entity_id: id, value: next });
+      });
+    });
+    this.shadowRoot.querySelectorAll("[data-toggle]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const id = el.dataset.toggle;
+        const st = this._hass.states[id];
+        this._hass.callService(
+          "switch",
+          st && st.state === "on" ? "turn_off" : "turn_on",
+          { entity_id: id }
+        );
+      });
+    });
+    this.shadowRoot.querySelectorAll("[data-dose]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const id = el.dataset.dose;
+        if (this._armed === id) {
+          this._armed = null;
+          this._hass.callService("button", "press", { entity_id: id });
+        } else {
+          this._armed = id;
+          setTimeout(() => {
+            if (this._armed === id) {
+              this._armed = null;
+              this._render();
+            }
+          }, 6000);
+        }
+        this._render();
+      });
+    });
+  }
+}
+
+class FeedAndWaterReefDoseCardEditor extends FeedAndWaterRedSeaEditor {
+  constructor() {
+    super();
+    this._roles = DOSE_ROLES;
+    this._kind = "ReefDose";
+    this._signature = (d) => d.entities.manual_head || d.entities.supplement;
+  }
+}
+
+
 class FeedAndWaterMaintenanceCard extends HTMLElement {
   /* Maintenance card: repeatable "mark it done" tasks (fleece roll, ATO
    * reset, filter socks…) — time since last done, an optional live status
@@ -2186,6 +2403,11 @@ customElements.define(
   FeedAndWaterReefMatCardEditor
 );
 customElements.define("feedandwater-reefato-card", FeedAndWaterReefAtoCard);
+customElements.define("feedandwater-reefdose-card", FeedAndWaterReefDoseCard);
+customElements.define(
+  "feedandwater-reefdose-card-editor",
+  FeedAndWaterReefDoseCardEditor
+);
 customElements.define(
   "feedandwater-reefato-card-editor",
   FeedAndWaterReefAtoCardEditor
@@ -2232,6 +2454,12 @@ window.customCards.push(
     name: "Reef Feed & Water — ReefATO+",
     description:
       "RedSea ReefATO+ control (via the ReefBeat integration): water level, reservoir days left, today's fills, leak alarm, Fill/Stop/Resume and the Auto fill toggle.",
+  },
+  {
+    type: "feedandwater-reefdose-card",
+    name: "Reef Feed & Water — ReefDose",
+    description:
+      "RedSea ReefDose heads (via the ReefBeat integration): supplement, container days left, today's dosing, schedule toggle, and a guarded manual dose with -/+ volume steppers.",
   },
   {
     type: "feedandwater-equipment-card",
