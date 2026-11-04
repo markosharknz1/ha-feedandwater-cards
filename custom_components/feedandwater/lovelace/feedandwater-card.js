@@ -2169,6 +2169,622 @@ class FeedAndWaterReefDoseCardEditor extends FeedAndWaterRedSeaEditor {
 }
 
 
+// Indexed roles (e.g. a power bar's socket_3_on_off): collect every
+// entity of a device whose translation_key (or object_id, as fallback)
+// matches the pattern, keyed by the captured index.
+function redseaIndexed(hass, deviceId, pattern) {
+  const out = {};
+  for (const [entityId, entry] of Object.entries(hass.entities || {})) {
+    if (entry.platform !== "redsea" || entry.device_id !== deviceId) continue;
+    const objectId = entityId.slice(entityId.indexOf(".") + 1);
+    const m = (entry.translation_key || "").match(pattern) || objectId.match(pattern);
+    if (!m) continue;
+    const idx = m[1];
+    if (!out[idx]) out[idx] = {};
+    out[idx][m[2]] = entityId;
+  }
+  return out;
+}
+
+const RUN_ROLES = {
+  type: ["sensor"],
+  model: ["sensor"],
+  state: ["sensor"],
+  temperature: ["sensor"],
+  speed: ["number"],
+  schedule_enabled: ["switch"],
+  sensor_controlled: ["switch"],
+};
+
+class FeedAndWaterReefRunCard extends HTMLElement {
+  /* ReefRun card: ReefBeat models each ReefRun pump (return / skimmer)
+   * as its own HA device — one row each: coloured state, temperature,
+   * a full-range speed slider and the schedule toggle. */
+
+  static getConfigElement() {
+    return document.createElement("feedandwater-reefrun-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  _devices() {
+    const want =
+      this._config.devices && this._config.devices.length
+        ? new Set(this._config.devices)
+        : null;
+    return redseaDevices(this._hass, RUN_ROLES).filter(
+      (d) => d.entities.speed && (d.entities.type || d.entities.state) &&
+        (!want || want.has(d.id))
+    );
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    const hass = this._hass;
+    const labels = this._config.labels || {};
+    const extra = `
+      .controls { display: flex; align-items: center; gap: 10px; margin-top: 8px;
+                  font-size: 0.9em; }
+      .controls label { flex: none; color: var(--secondary-text-color); }
+      .controls input[type=range] { flex: 1; }
+      .controls .val { flex: 0 0 3.5em; text-align: right;
+                       color: var(--secondary-text-color); }
+    `;
+
+    let body = "";
+    if (!hass) {
+      body = `<div class="empty">Waiting for Home Assistant…</div>`;
+    } else {
+      const devs = this._devices();
+      body = devs.length
+        ? devs
+            .map((d) => {
+              const off = rsUnavailable(hass, d);
+              const state = rsState(hass, d, "state");
+              const type = rsState(hass, d, "type");
+              const model = rsState(hass, d, "model");
+              const temp = rsNum(rsState(hass, d, "temperature"));
+              const speed = rsState(hass, d, "speed");
+              const sched = rsState(hass, d, "schedule_enabled");
+              let cls = "off";
+              let text = "";
+              if (off) {
+                cls = "bad";
+                text = "Unavailable";
+              } else if (state) {
+                const v = String(state.state).toLowerCase();
+                const good = ["ok", "on", "running", "auto"].includes(v);
+                cls = good ? "good" : "warn-s";
+                text = good ? "Running" : humanize(state.state);
+              }
+              const subBits = [];
+              if (type && type.state !== "unknown") subBits.push(humanize(type.state));
+              if (model && model.state !== "unknown") subBits.push(model.state);
+              if (temp !== null) subBits.push(`${temp.toFixed(1)} °C`);
+              const warn = off
+                ? `<div class="warn">⚠ Unavailable — check the ReefRun's connection</div>`
+                : "";
+              let slider = "";
+              if (speed) {
+                const a = speed.attributes;
+                const val = rsNum(speed);
+                slider = `<div class="controls">
+                    <label>Speed</label>
+                    <input type="range" min="${a.min != null ? a.min : 0}"
+                      max="${a.max != null ? a.max : 100}" step="${a.step != null ? a.step : 1}"
+                      value="${val != null ? val : 0}" data-num="${d.entities.speed}">
+                    <span class="val">${val != null ? Math.round(val) + "%" : "?"}</span>
+                    ${sched ? `<button class="chip ${sched.state === "on" ? "on" : ""}"
+                        data-toggle="${d.entities.schedule_enabled}">Schedule ${sched.state === "on" ? "on" : "off"}</button>` : ""}
+                  </div>`;
+              }
+              return `<div class="drow">
+                  <div class="top">
+                    <span class="name">${labels[d.id] || d.name}</span>
+                    <span class="status ${cls}">${text}</span>
+                  </div>
+                  ${subBits.length ? `<div class="sub">${subBits.join(" · ")}</div>` : ""}
+                  ${warn}
+                  ${slider}
+                </div>`;
+            })
+            .join("")
+        : `<div class="empty">No ReefRun pumps found. This card needs the
+            Red Sea ReefBeat integration (Elwinmage/ha-reefbeat-component)
+            with your ReefRun added.</div>`;
+    }
+
+    const heading = this._config.title
+      ? `<div class="heading">${this._config.title}</div>`
+      : "";
+    this.shadowRoot.innerHTML = `<style>${RS_SHARED_CSS}${extra}</style><ha-card>${heading}${body}</ha-card>`;
+
+    this.shadowRoot.querySelectorAll("input[data-num]").forEach((el) => {
+      el.addEventListener("change", () => {
+        this._hass.callService("number", "set_value", {
+          entity_id: el.dataset.num,
+          value: Number(el.value),
+        });
+      });
+    });
+    this.shadowRoot.querySelectorAll("[data-toggle]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const st = this._hass.states[el.dataset.toggle];
+        this._hass.callService(
+          "switch",
+          st && st.state === "on" ? "turn_off" : "turn_on",
+          { entity_id: el.dataset.toggle }
+        );
+      });
+    });
+  }
+}
+
+class FeedAndWaterReefRunCardEditor extends FeedAndWaterRedSeaEditor {
+  constructor() {
+    super();
+    this._roles = RUN_ROLES;
+    this._kind = "ReefRun";
+    this._signature = (d) => d.entities.speed && (d.entities.type || d.entities.state);
+  }
+}
+
+const WAVE_ROLES = {
+  wave_type: ["sensor"],
+  wave_name: ["sensor"],
+  wave_direction: ["sensor"],
+  wave_forward_intensity: ["sensor", "number"],
+  wave_backward_intensity: ["sensor", "number"],
+  shortcut_feeding: ["switch"],
+};
+
+class FeedAndWaterReefWaveCard extends HTMLElement {
+  /* ReefWave card: what each wavemaker is running right now (wave name,
+   * type, direction, forward/backward intensity) plus the Feed shortcut
+   * toggle to pause it for feeding. */
+
+  static getConfigElement() {
+    return document.createElement("feedandwater-reefwave-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  _devices() {
+    const want =
+      this._config.devices && this._config.devices.length
+        ? new Set(this._config.devices)
+        : null;
+    return redseaDevices(this._hass, WAVE_ROLES).filter(
+      (d) =>
+        (d.entities.wave_type || d.entities.shortcut_feeding) &&
+        (!want || want.has(d.id))
+    );
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    const hass = this._hass;
+    const labels = this._config.labels || {};
+
+    let body = "";
+    if (!hass) {
+      body = `<div class="empty">Waiting for Home Assistant…</div>`;
+    } else {
+      const devs = this._devices();
+      body = devs.length
+        ? devs
+            .map((d) => {
+              const off = rsUnavailable(hass, d);
+              const name = rsState(hass, d, "wave_name");
+              const type = rsState(hass, d, "wave_type");
+              const dir = rsState(hass, d, "wave_direction");
+              const fwd = rsNum(rsState(hass, d, "wave_forward_intensity"));
+              const back = rsNum(rsState(hass, d, "wave_backward_intensity"));
+              const feeding = rsState(hass, d, "shortcut_feeding");
+              const feedOn = feeding && feeding.state === "on";
+              let cls = "good";
+              let text = "";
+              if (off) {
+                cls = "bad";
+                text = "Unavailable";
+              } else if (feedOn) {
+                cls = "warn-s";
+                text = "Feed pause";
+              } else {
+                const wave =
+                  (name && name.state !== "unknown" && name.state) ||
+                  (type && type.state !== "unknown" && humanize(type.state)) ||
+                  "";
+                text = wave ? `Running ${wave}` : "Running";
+              }
+              const subBits = [];
+              if (dir && dir.state !== "unknown") subBits.push(humanize(dir.state));
+              if (fwd !== null) subBits.push(`forward ${Math.round(fwd)}%`);
+              if (back !== null) subBits.push(`back ${Math.round(back)}%`);
+              const warn = off
+                ? `<div class="warn">⚠ Unavailable — check the wavemaker's connection</div>`
+                : "";
+              const buttons = feeding
+                ? `<div class="buttons">
+                     <button class="chip ${feedOn ? "on" : ""}"
+                       data-toggle="${d.entities.shortcut_feeding}">${feedOn ? "Resume waves" : "Feed pause"}</button>
+                   </div>`
+                : "";
+              return `<div class="drow">
+                  <div class="top">
+                    <span class="name">${labels[d.id] || d.name}</span>
+                    <span class="status ${cls}">${text}</span>
+                  </div>
+                  ${subBits.length ? `<div class="sub">${subBits.join(" · ")}</div>` : ""}
+                  ${warn}
+                  ${buttons}
+                </div>`;
+            })
+            .join("")
+        : `<div class="empty">No ReefWave found. This card needs the Red Sea
+            ReefBeat integration (Elwinmage/ha-reefbeat-component) with your
+            ReefWave added.</div>`;
+    }
+
+    const heading = this._config.title
+      ? `<div class="heading">${this._config.title}</div>`
+      : "";
+    this.shadowRoot.innerHTML = `<style>${RS_SHARED_CSS}</style><ha-card>${heading}${body}</ha-card>`;
+
+    this.shadowRoot.querySelectorAll("[data-toggle]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const st = this._hass.states[el.dataset.toggle];
+        this._hass.callService(
+          "switch",
+          st && st.state === "on" ? "turn_off" : "turn_on",
+          { entity_id: el.dataset.toggle }
+        );
+      });
+    });
+  }
+}
+
+class FeedAndWaterReefWaveCardEditor extends FeedAndWaterRedSeaEditor {
+  constructor() {
+    super();
+    this._roles = WAVE_ROLES;
+    this._kind = "ReefWave";
+    this._signature = (d) => d.entities.wave_type || d.entities.shortcut_feeding;
+  }
+}
+
+const POWER_ROLES = {
+  battery_level: ["sensor"],
+  power_temperature: ["sensor"],
+  model_type: ["sensor"],
+};
+const POWER_SOCKET_RE = /^socket_(\d+)_(on_off|state|name)$/;
+
+class FeedAndWaterReefPowerCard extends HTMLElement {
+  /* ReefPower card: one row per power bar — battery/temperature at a
+   * glance, then a chip per socket (named from the bar's own socket-name
+   * sensors) that toggles it. */
+
+  static getConfigElement() {
+    return document.createElement("feedandwater-reefpower-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  _devices() {
+    const want =
+      this._config.devices && this._config.devices.length
+        ? new Set(this._config.devices)
+        : null;
+    return redseaDevices(this._hass, POWER_ROLES)
+      .map((d) => ({ ...d, sockets: redseaIndexed(this._hass, d.id, POWER_SOCKET_RE) }))
+      .filter(
+        (d) =>
+          (d.entities.battery_level || Object.keys(d.sockets).length) &&
+          (!want || want.has(d.id))
+      );
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    const hass = this._hass;
+    const labels = this._config.labels || {};
+    const extra = `
+      .sockets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    `;
+
+    let body = "";
+    if (!hass) {
+      body = `<div class="empty">Waiting for Home Assistant…</div>`;
+    } else {
+      const devs = this._devices();
+      body = devs.length
+        ? devs
+            .map((d) => {
+              const off = rsUnavailable(hass, d);
+              const battery = rsNum(rsState(hass, d, "battery_level"));
+              const temp = rsNum(rsState(hass, d, "power_temperature"));
+              const subBits = [];
+              if (temp !== null) subBits.push(`${temp.toFixed(1)} °C`);
+              if (battery !== null) subBits.push(`battery ${Math.round(battery)}%`);
+              let cls = off ? "bad" : "good";
+              let text = off ? "Unavailable" : "Online";
+              if (!off && battery !== null && battery < 20) {
+                cls = "warn-s";
+                text = "Battery low";
+              }
+              const warn = off
+                ? `<div class="warn">⚠ Unavailable — check the power bar's connection</div>`
+                : "";
+              const chips = Object.keys(d.sockets)
+                .sort((a, b) => Number(a) - Number(b))
+                .map((idx) => {
+                  const sock = d.sockets[idx];
+                  if (!sock.on_off) return "";
+                  const sw = hass.states[sock.on_off];
+                  const nameState = sock.name ? hass.states[sock.name] : null;
+                  const label =
+                    (nameState && nameState.state !== "unknown" && nameState.state) ||
+                    `Socket ${Number(idx) + 1}`;
+                  const on = sw && sw.state === "on";
+                  return `<button class="chip ${on ? "on" : ""}"
+                      data-toggle="${sock.on_off}">${label}</button>`;
+                })
+                .join("");
+              return `<div class="drow">
+                  <div class="top">
+                    <span class="name">${labels[d.id] || d.name}</span>
+                    <span class="status ${cls}">${text}</span>
+                  </div>
+                  ${subBits.length ? `<div class="sub">${subBits.join(" · ")}</div>` : ""}
+                  ${warn}
+                  ${chips ? `<div class="sockets">${chips}</div>` : ""}
+                </div>`;
+            })
+            .join("")
+        : `<div class="empty">No ReefPower found. This card needs the Red Sea
+            ReefBeat integration (Elwinmage/ha-reefbeat-component) with your
+            ReefPower added.</div>`;
+    }
+
+    const heading = this._config.title
+      ? `<div class="heading">${this._config.title}</div>`
+      : "";
+    this.shadowRoot.innerHTML = `<style>${RS_SHARED_CSS}${extra}</style><ha-card>${heading}${body}</ha-card>`;
+
+    this.shadowRoot.querySelectorAll("[data-toggle]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const st = this._hass.states[el.dataset.toggle];
+        this._hass.callService(
+          "switch",
+          st && st.state === "on" ? "turn_off" : "turn_on",
+          { entity_id: el.dataset.toggle }
+        );
+      });
+    });
+  }
+}
+
+class FeedAndWaterReefPowerCardEditor extends FeedAndWaterRedSeaEditor {
+  constructor() {
+    super();
+    this._roles = POWER_ROLES;
+    this._kind = "ReefPower";
+    this._signature = (d) => true;
+  }
+}
+
+const LED_ROLES = {
+  white: ["light"],
+  blue: ["light"],
+  moon: ["light"],
+  kelvin_intensity: ["light"],
+  acclimation_remaining_days: ["sensor"],
+  moon_day: ["number"],
+};
+const LED_CHANNELS = [
+  ["white", "White"],
+  ["blue", "Blue"],
+  ["kelvin_intensity", "Kelvin"],
+  ["moon", "Moon"],
+];
+
+class FeedAndWaterReefLedCard extends HTMLElement {
+  /* ReefLED card: compact per-light channel control — a slider per
+   * channel (white / blue / kelvin / moon) driving the integration's
+   * light entities by brightness, with acclimation and moon-cycle info.
+   * Full schedule editing stays in the ReefBeat integration's own
+   * tools; this is the day-to-day glance-and-nudge card. */
+
+  static getConfigElement() {
+    return document.createElement("feedandwater-reefled-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  getCardSize() {
+    return 3;
+  }
+
+  _devices() {
+    const want =
+      this._config.devices && this._config.devices.length
+        ? new Set(this._config.devices)
+        : null;
+    return redseaDevices(this._hass, LED_ROLES).filter(
+      (d) =>
+        LED_CHANNELS.some(([role]) => d.entities[role]) &&
+        (!want || want.has(d.id))
+    );
+  }
+
+  _render() {
+    if (!this._config) return;
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    const hass = this._hass;
+    const labels = this._config.labels || {};
+    const extra = `
+      .controls { display: flex; align-items: center; gap: 10px; margin-top: 6px;
+                  font-size: 0.9em; }
+      .controls label { flex: 0 0 4em; color: var(--secondary-text-color); }
+      .controls input[type=range] { flex: 1; }
+      .controls .val { flex: 0 0 3.2em; text-align: right;
+                       color: var(--secondary-text-color); }
+    `;
+
+    let body = "";
+    if (!hass) {
+      body = `<div class="empty">Waiting for Home Assistant…</div>`;
+    } else {
+      const devs = this._devices();
+      body = devs.length
+        ? devs
+            .map((d) => {
+              const off = rsUnavailable(hass, d);
+              const accl = rsNum(rsState(hass, d, "acclimation_remaining_days"));
+              const moonDay = rsNum(rsState(hass, d, "moon_day"));
+              const sliders = LED_CHANNELS.filter(([role]) => d.entities[role])
+                .map(([role, label]) => {
+                  const st = hass.states[d.entities[role]];
+                  const on = st && st.state === "on";
+                  const pct =
+                    on && st.attributes.brightness != null
+                      ? Math.round((st.attributes.brightness / 255) * 100)
+                      : on
+                        ? 100
+                        : 0;
+                  return `<div class="controls">
+                      <label>${label}</label>
+                      <input type="range" min="0" max="100" step="1" value="${pct}"
+                        data-light="${d.entities[role]}">
+                      <span class="val">${pct}%</span>
+                    </div>`;
+                })
+                .join("");
+              const anyOn = LED_CHANNELS.some(([role]) => {
+                const st = d.entities[role] && hass.states[d.entities[role]];
+                return st && st.state === "on";
+              });
+              let cls = off ? "bad" : anyOn ? "good" : "off";
+              let text = off ? "Unavailable" : anyOn ? "On" : "Off";
+              const subBits = [];
+              if (accl !== null && accl > 0)
+                subBits.push(`acclimation: ${Math.round(accl)} days left`);
+              if (moonDay !== null) subBits.push(`moon day ${Math.round(moonDay)}`);
+              const warn = off
+                ? `<div class="warn">⚠ Unavailable — check the light's connection</div>`
+                : "";
+              return `<div class="drow">
+                  <div class="top">
+                    <span class="name">${labels[d.id] || d.name}</span>
+                    <span class="status ${cls}">${text}</span>
+                  </div>
+                  ${subBits.length ? `<div class="sub">${subBits.join(" · ")}</div>` : ""}
+                  ${warn}
+                  ${sliders}
+                </div>`;
+            })
+            .join("")
+        : `<div class="empty">No ReefLED found. This card needs the Red Sea
+            ReefBeat integration (Elwinmage/ha-reefbeat-component) with your
+            ReefLED added.</div>`;
+    }
+
+    const heading = this._config.title
+      ? `<div class="heading">${this._config.title}</div>`
+      : "";
+    this.shadowRoot.innerHTML = `<style>${RS_SHARED_CSS}${extra}</style><ha-card>${heading}${body}</ha-card>`;
+
+    this.shadowRoot.querySelectorAll("input[data-light]").forEach((el) => {
+      el.addEventListener("change", () => {
+        const id = el.dataset.light;
+        const pct = Number(el.value);
+        if (pct <= 0) {
+          this._hass.callService("light", "turn_off", { entity_id: id });
+        } else {
+          this._hass.callService("light", "turn_on", {
+            entity_id: id,
+            brightness_pct: pct,
+          });
+        }
+      });
+    });
+  }
+}
+
+class FeedAndWaterReefLedCardEditor extends FeedAndWaterRedSeaEditor {
+  constructor() {
+    super();
+    this._roles = LED_ROLES;
+    this._kind = "ReefLED";
+    this._signature = (d) => LED_CHANNELS.some(([role]) => d.entities[role]);
+  }
+}
+
+
 class FeedAndWaterMaintenanceCard extends HTMLElement {
   /* Maintenance card: repeatable "mark it done" tasks (fleece roll, ATO
    * reset, filter socks…) — time since last done, an optional live status
@@ -2404,6 +3020,26 @@ customElements.define(
 );
 customElements.define("feedandwater-reefato-card", FeedAndWaterReefAtoCard);
 customElements.define("feedandwater-reefdose-card", FeedAndWaterReefDoseCard);
+customElements.define("feedandwater-reefrun-card", FeedAndWaterReefRunCard);
+customElements.define(
+  "feedandwater-reefrun-card-editor",
+  FeedAndWaterReefRunCardEditor
+);
+customElements.define("feedandwater-reefwave-card", FeedAndWaterReefWaveCard);
+customElements.define(
+  "feedandwater-reefwave-card-editor",
+  FeedAndWaterReefWaveCardEditor
+);
+customElements.define("feedandwater-reefpower-card", FeedAndWaterReefPowerCard);
+customElements.define(
+  "feedandwater-reefpower-card-editor",
+  FeedAndWaterReefPowerCardEditor
+);
+customElements.define("feedandwater-reefled-card", FeedAndWaterReefLedCard);
+customElements.define(
+  "feedandwater-reefled-card-editor",
+  FeedAndWaterReefLedCardEditor
+);
 customElements.define(
   "feedandwater-reefdose-card-editor",
   FeedAndWaterReefDoseCardEditor
@@ -2460,6 +3096,30 @@ window.customCards.push(
     name: "Reef Feed & Water — ReefDose",
     description:
       "RedSea ReefDose heads (via the ReefBeat integration): supplement, container days left, today's dosing, schedule toggle, and a guarded manual dose with -/+ volume steppers.",
+  },
+  {
+    type: "feedandwater-reefrun-card",
+    name: "Reef Feed & Water — ReefRun",
+    description:
+      "RedSea ReefRun pumps (via the ReefBeat integration): per-pump state, temperature, full-range speed slider and schedule toggle.",
+  },
+  {
+    type: "feedandwater-reefwave-card",
+    name: "Reef Feed & Water — ReefWave",
+    description:
+      "RedSea ReefWave wavemakers (via the ReefBeat integration): current wave, direction and intensities, with a one-tap Feed pause.",
+  },
+  {
+    type: "feedandwater-reefpower-card",
+    name: "Reef Feed & Water — ReefPower",
+    description:
+      "RedSea ReefPower bars (via the ReefBeat integration): battery and temperature at a glance, plus a named toggle chip per socket.",
+  },
+  {
+    type: "feedandwater-reefled-card",
+    name: "Reef Feed & Water — ReefLED",
+    description:
+      "RedSea ReefLED lights (via the ReefBeat integration): per-channel sliders (white/blue/kelvin/moon), acclimation and moon-cycle info.",
   },
   {
     type: "feedandwater-equipment-card",
