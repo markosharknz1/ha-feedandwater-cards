@@ -28,6 +28,7 @@ from .const import (
     CONF_MAINT_ACTIONS,
     CONF_POWER_SENSOR,
     CONF_PUMP_SPEED_CONTROLS,
+    DOMAIN,
     CONF_SPEED_DISPLAYS,
     CONF_EQUIPMENT,
     CONF_NIGHT_CHANNELS,
@@ -395,12 +396,50 @@ class TankData:
                 )
                 del events[: -self.DROPOUT_EVENTS_PER_DEVICE]
                 self.dropout_listeners._notify()
+                self._dropout_announce(entity_id, offline=False)
         elif available(old) and entity_id not in self.dropout_offline_since:
             self.dropout_offline_since[entity_id] = now
             self.dropout_counts[entity_id] = (
                 self.dropout_counts.get(entity_id, 0) + 1
             )
             self.dropout_listeners._notify()
+            self._dropout_announce(entity_id, offline=True)
+
+    def _device_label(self, entity_id: str) -> str:
+        state = self.hass.states.get(entity_id)
+        if state is not None:
+            name = state.attributes.get("friendly_name")
+            if name:
+                return str(name)
+        return entity_id
+
+    def _dropout_announce(self, entity_id: str, *, offline: bool) -> None:
+        """Fire an event and raise/clear a per-device persistent notification
+        when a watched device drops out or returns — so a drop is actively
+        surfaced, not just counted on the dropouts sensor."""
+        from homeassistant.components import persistent_notification
+
+        tank = self.entry.title or self.slug
+        device = self._device_label(entity_id)
+        notif_id = f"{DOMAIN}_dropout_{self.slug}_{entity_id}"
+        if offline:
+            self.hass.bus.async_fire(
+                f"{DOMAIN}_dropout",
+                {"tank": tank, "slug": self.slug, "entity_id": entity_id, "device": device},
+            )
+            persistent_notification.async_create(
+                self.hass,
+                f"{device} on {tank} has dropped out (gone unavailable). "
+                "Check its power and WiFi.",
+                title="Reef device offline",
+                notification_id=notif_id,
+            )
+        else:
+            self.hass.bus.async_fire(
+                f"{DOMAIN}_reconnected",
+                {"tank": tank, "slug": self.slug, "entity_id": entity_id, "device": device},
+            )
+            persistent_notification.async_dismiss(self.hass, notif_id)
 
     @callback
     def async_dropout_restore(self, attrs: dict[str, Any]) -> None:
