@@ -126,6 +126,17 @@ class TankData:
     # commanded state, and the interval-timer cancel handle.
     _watchdog_retries: dict[str, int] = field(default_factory=dict)
     _watchdog_unsub: Callable[[], None] | None = field(default=None)
+    # Dropout diagnostics: availability bookkeeping for every watched
+    # device, any brand. One dropout = one offline episode (counted when
+    # it starts); completed episodes keep start/end/duration. Persisted
+    # across restarts via the dropouts sensor's restored attributes.
+    dropout_counts: dict[str, int] = field(default_factory=dict)
+    dropout_offline_since: dict[str, datetime] = field(default_factory=dict)
+    dropout_events: dict[str, list] = field(default_factory=dict)
+    dropout_last_seen: dict[str, datetime] = field(default_factory=dict)
+    dropout_listeners: _Notifier = field(default_factory=_Notifier)
+    _dropout_unsub: Callable[[], None] | None = field(default=None)
+    _dropout_seeded: bool = False
     # Night Feed switch: snapshot of every touched entity taken at turn-on
     # so turn-off restores exactly what was there (JSON-safe — it rides on
     # the switch entity's restored attributes across HA restarts).
@@ -153,6 +164,12 @@ class TankData:
                 self.hass,
                 self._async_watchdog_sweep,
                 timedelta(seconds=self.WATCHDOG_INTERVAL_S),
+            )
+        if self.dropout_watched_entities():
+            self._dropout_unsub = async_track_state_change_event(
+                self.hass,
+                self.dropout_watched_entities(),
+                self._async_dropout_state_changed,
             )
 
     @property
@@ -338,6 +355,106 @@ class TankData:
         for entity_id in entity_ids:
             self._verify_expected.pop(entity_id, None)
             self._watchdog_retries.pop(entity_id, None)
+
+    # --- Dropout diagnostics --------------------------------------------
+
+    DROPOUT_EVENTS_PER_DEVICE = 5
+
+    def dropout_watched_entities(self) -> list[str]:
+        """Everything whose availability is worth tracking: all on/off
+        hardware plus every Equipment-card device (probes included)."""
+        seen = self.watched_onoff_entities()
+        for entity_id in self.equipment_entities():
+            if entity_id not in seen:
+                seen.append(entity_id)
+        return seen
+
+    async def _async_dropout_state_changed(self, event: Any) -> None:
+        entity_id = event.data["entity_id"]
+        new = event.data.get("new_state")
+        old = event.data.get("old_state")
+
+        def available(state: Any) -> bool:
+            return state is not None and state.state not in (
+                "unavailable",
+                "unknown",
+            )
+
+        now = dt_util.utcnow()
+        if available(new):
+            self.dropout_last_seen[entity_id] = now
+            start = self.dropout_offline_since.pop(entity_id, None)
+            if start is not None:
+                events = self.dropout_events.setdefault(entity_id, [])
+                events.append(
+                    {
+                        "start": start.isoformat(),
+                        "end": now.isoformat(),
+                        "duration_s": int((now - start).total_seconds()),
+                    }
+                )
+                del events[: -self.DROPOUT_EVENTS_PER_DEVICE]
+                self.dropout_listeners._notify()
+        elif available(old) and entity_id not in self.dropout_offline_since:
+            self.dropout_offline_since[entity_id] = now
+            self.dropout_counts[entity_id] = (
+                self.dropout_counts.get(entity_id, 0) + 1
+            )
+            self.dropout_listeners._notify()
+
+    @callback
+    def async_dropout_restore(self, attrs: dict[str, Any]) -> None:
+        """Merge the dropouts sensor's restored attributes in after an HA
+        restart. A live availability event can land before the sensor
+        restores, so this merges per entity instead of refusing: an
+        outage spanning the restart keeps its original start, one that
+        ended mid-restart is closed at the first live sighting, and live
+        episodes add on top of the restored totals. Runs once."""
+        if self._dropout_seeded:
+            return
+        self._dropout_seeded = True
+        per_device = attrs.get("devices") or {}
+        for entity_id, info in per_device.items():
+            restored_count = int(info.get("count") or 0)
+            restored_open = dt_util.parse_datetime(info.get("offline_since") or "")
+            restored_seen = dt_util.parse_datetime(info.get("last_seen") or "")
+            if info.get("recent"):
+                events = self.dropout_events.setdefault(entity_id, [])
+                events[:0] = list(info["recent"])
+                del events[: -self.DROPOUT_EVENTS_PER_DEVICE]
+            live_open = self.dropout_offline_since.get(entity_id)
+            live_seen = self.dropout_last_seen.get(entity_id)
+            if restored_open is not None and live_open is not None:
+                # Same outage, still running: restored count covers it,
+                # and the pre-restart start keeps the duration honest.
+                self.dropout_counts[entity_id] = restored_count
+                self.dropout_offline_since[entity_id] = restored_open
+            elif restored_open is not None and live_seen is not None:
+                # Ended somewhere during the restart: close it off at the
+                # first live sighting rather than losing the episode.
+                self.dropout_counts[entity_id] = restored_count
+                events = self.dropout_events.setdefault(entity_id, [])
+                events.append(
+                    {
+                        "start": restored_open.isoformat(),
+                        "end": live_seen.isoformat(),
+                        "duration_s": int(
+                            (live_seen - restored_open).total_seconds()
+                        ),
+                    }
+                )
+                del events[: -self.DROPOUT_EVENTS_PER_DEVICE]
+            elif restored_open is not None:
+                # No live sighting either way yet: adopt the open episode.
+                self.dropout_counts[entity_id] = restored_count
+                self.dropout_offline_since[entity_id] = restored_open
+            elif restored_count:
+                self.dropout_counts[entity_id] = restored_count + self.dropout_counts.get(entity_id, 0)
+            if restored_seen is not None and (
+                live_seen is None or restored_seen > live_seen
+            ):
+                self.dropout_last_seen[entity_id] = restored_seen
+        self.dropout_listeners._notify()
 
     async def _async_watchdog_sweep(self, _now: datetime) -> None:
         # 1. Force-refresh so the comparison below sees real device state,
@@ -681,6 +798,9 @@ class TankData:
         if self._watchdog_unsub:
             self._watchdog_unsub()
             self._watchdog_unsub = None
+        if self._dropout_unsub:
+            self._dropout_unsub()
+            self._dropout_unsub = None
 
 
 class FeedController(_Notifier):

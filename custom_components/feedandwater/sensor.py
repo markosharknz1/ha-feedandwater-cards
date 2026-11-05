@@ -50,6 +50,8 @@ async def async_setup_entry(
         entities.append(EquipmentSensor(tank))
     if tank.watched_onoff_entities():
         entities.append(ProblemsSensor(tank))
+    if tank.dropout_watched_entities():
+        entities.append(DropoutsSensor(tank))
     async_add_entities(entities)
 
 
@@ -416,6 +418,58 @@ class ProblemsSensor(FeedAndWaterEntity, SensorEntity):
                 self.async_write_ha_state
             )
         )
+
+
+class DropoutsSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
+    """How many times this entry's devices have dropped off the network
+    (gone unavailable), with per-device detail in the attributes: count,
+    last seen, whether it is offline right now, and the recent outages
+    with durations. Turns "the devices seem flaky" into which device,
+    when, and for how long. Persists across HA restarts."""
+
+    _attr_icon = "mdi:wifi-strength-alert-outline"
+    _attr_native_unit_of_measurement = "dropouts"
+
+    def __init__(self, tank: TankData) -> None:
+        super().__init__(tank, "sensor", "dropouts")
+
+    @property
+    def native_value(self) -> int:
+        return sum(self.tank.dropout_counts.values())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        hass = self.tank.hass
+        devices: dict[str, Any] = {}
+        for entity_id in self.tank.dropout_watched_entities():
+            count = self.tank.dropout_counts.get(entity_id, 0)
+            offline_since = self.tank.dropout_offline_since.get(entity_id)
+            events = self.tank.dropout_events.get(entity_id) or []
+            last_seen = self.tank.dropout_last_seen.get(entity_id)
+            if not count and offline_since is None and not events:
+                continue
+            state = hass.states.get(entity_id)
+            devices[entity_id] = {
+                "name": (state and state.attributes.get("friendly_name"))
+                or entity_id,
+                "count": count,
+                "last_seen": _iso(last_seen),
+                "offline_since": _iso(offline_since),
+                "recent": list(events),
+            }
+        return {
+            "offline_now": sorted(self.tank.dropout_offline_since),
+            "devices": devices,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.tank.dropout_listeners.async_add_listener(self.async_write_ha_state)
+        )
+        last = await self.async_get_last_state()
+        if last is not None and last.state not in ("unknown", "unavailable"):
+            self.tank.async_dropout_restore(dict(last.attributes))
 
 
 class OffDurationsSensor(FeedAndWaterEntity, SensorEntity):
