@@ -847,10 +847,13 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
       const unresponsive = new Set(sensor.attributes.unresponsive || []);
       for (const s of sensor.attributes.speeds || []) {
         if (want && !want.has(s.entity_id)) continue;
+        const live = this._hass.states[s.entity_id];
         rows.push({
           tank: tank.name,
           ...s,
           name: labels[s.entity_id] || s.name,
+          available:
+            !!live && live.state !== "unavailable" && live.state !== "unknown",
           isPaused: s.entity_id in paused,
           pausedUntil: paused[s.entity_id] || null,
           // Anything that can actually be turned off gets the Off/timer
@@ -887,6 +890,8 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
         .status.paused { color: var(--warning-color, #ffa600); }
         .status.paused::before { background: var(--warning-color, #ffa600); }
         .status.off { color: var(--secondary-text-color); }
+        .status.bad { color: var(--error-color, #f44336); font-weight: 500; }
+        .status.bad::before { background: var(--error-color, #f44336); }
         .value { font-size: 1.35em; font-weight: 500; flex: 0 0 3.2em; text-align: right; }
         .controls { display: flex; align-items: center; gap: 10px; margin-top: 8px;
                     font-size: 0.9em; }
@@ -918,7 +923,10 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
               // is answered without decoding the number or the timer row.
               let statusClass = "off";
               let statusText = "Off";
-              if (r.isPaused) {
+              if (!r.available) {
+                statusClass = "bad";
+                statusText = "Unavailable";
+              } else if (r.isPaused) {
                 statusClass = "paused";
                 statusText = r.pausedUntil
                   ? `Off · back on in ${fmtRemaining(r.pausedUntil) || "…"}`
@@ -928,7 +936,9 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
                 statusText = "Running";
               }
               const value =
-                r.on && r.value !== null ? Math.round(r.value) + r.unit : "";
+                r.available && r.on && r.value !== null
+                  ? Math.round(r.value) + r.unit
+                  : "";
               let controls = "";
               if (r.controllable) {
                 if (r.isPaused) {
@@ -948,9 +958,13 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
                     </div>`;
                 }
               }
-              const warn = r.unresponsive
-                ? `<div class="warn">⚠ Not responding to commands</div>`
-                : "";
+              let warn = "";
+              if (!r.available)
+                warn = `<div class="warn">⚠ Unreachable — check the pump's
+                  WiFi/power. It keeps running its own program; commands
+                  will land when it comes back.</div>`;
+              else if (r.unresponsive)
+                warn = `<div class="warn">⚠ Not responding to commands</div>`;
               const group = this._config.show_groups
                 ? `<span class="tank">${r.tank}</span>`
                 : "";
