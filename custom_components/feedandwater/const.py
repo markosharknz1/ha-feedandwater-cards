@@ -30,6 +30,10 @@ CONF_KIND = "kind"
 KIND_MAINTENANCE = "maintenance"
 CONF_MAINT_ACTIONS = "maintenance_actions"
 CONF_MAINT_STATUS = "maintenance_status"
+# Repeat every N days (0 = no schedule, the task is log-only)
+CONF_MAINT_INTERVAL = "maintenance_interval"
+# Optional tank volume in litres — enables water-change percentage stats
+CONF_TANK_VOLUME = "tank_volume_l"
 
 # TankData.values keys — one per settings number entity
 VALUE_FEED_DURATION = "feed_duration"

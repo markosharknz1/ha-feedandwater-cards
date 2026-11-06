@@ -24,6 +24,8 @@ from .const import (
     CONF_KIND,
     CONF_LIGHTS,
     CONF_MAINT_ACTIONS,
+    CONF_MAINT_INTERVAL,
+    CONF_TANK_VOLUME,
     CONF_MAINT_STATUS,
     CONF_POWER_SENSOR,
     CONF_PUMP_SPEED_CONTROLS,
@@ -84,6 +86,46 @@ MAINT_ACTION_SELECTOR = selector.EntitySelector(
 MAINT_STATUS_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain=["binary_sensor", "sensor"])
 )
+MAINT_INTERVAL_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=0, max=365, step=1, unit_of_measurement="days",
+        mode=selector.NumberSelectorMode.BOX,
+    )
+)
+TANK_VOLUME_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=0, max=10000, step=1, unit_of_measurement="L",
+        mode=selector.NumberSelectorMode.BOX,
+    )
+)
+
+
+def _maintenance_options(user_input: dict) -> dict:
+    """The options dict shared by the create steps and the options flow."""
+    options: dict = {CONF_MAINT_ACTIONS: user_input.get(CONF_MAINT_ACTIONS, [])}
+    if user_input.get(CONF_MAINT_STATUS):
+        options[CONF_MAINT_STATUS] = user_input[CONF_MAINT_STATUS]
+    options[CONF_MAINT_INTERVAL] = int(user_input.get(CONF_MAINT_INTERVAL) or 0)
+    return options
+
+
+def _maintenance_schema(current: dict, action_sel=None, status_sel=None) -> vol.Schema:
+    schema: dict = {
+        vol.Optional(
+            CONF_MAINT_ACTIONS, default=current.get(CONF_MAINT_ACTIONS, [])
+        ): action_sel or MAINT_ACTION_SELECTOR,
+    }
+    status_current = current.get(CONF_MAINT_STATUS)
+    if status_current:
+        schema[vol.Optional(CONF_MAINT_STATUS, default=status_current)] = (
+            status_sel or MAINT_STATUS_SELECTOR
+        )
+    else:
+        schema[vol.Optional(CONF_MAINT_STATUS)] = status_sel or MAINT_STATUS_SELECTOR
+    schema[
+        vol.Optional(CONF_MAINT_INTERVAL, default=current.get(CONF_MAINT_INTERVAL, 0))
+    ] = MAINT_INTERVAL_SELECTOR
+    return vol.Schema(schema)
 
 # RedSea-targeted variants: same shapes, but the pickers only offer
 # entities from the ReefBeat integration (domain "redsea",
@@ -140,6 +182,9 @@ def _hardware_schema(current: dict[str, Any]) -> vol.Schema:
         schema[vol.Optional(CONF_POWER_SENSOR, default=power_current)] = POWER_SELECTOR
     else:
         schema[vol.Optional(CONF_POWER_SENSOR)] = POWER_SELECTOR
+    schema[
+        vol.Optional(CONF_TANK_VOLUME, default=current.get(CONF_TANK_VOLUME, 0))
+    ] = TANK_VOLUME_SELECTOR
     return vol.Schema(schema)
 
 
@@ -384,15 +429,10 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
             if slug is not None:
                 await self.async_set_unique_id(slug)
                 self._abort_if_unique_id_configured()
-                options: dict[str, Any] = {
-                    CONF_MAINT_ACTIONS: user_input.get(CONF_MAINT_ACTIONS, [])
-                }
-                if user_input.get(CONF_MAINT_STATUS):
-                    options[CONF_MAINT_STATUS] = user_input[CONF_MAINT_STATUS]
                 return self.async_create_entry(
                     title=self._name or slug,
                     data={CONF_SLUG: slug, CONF_KIND: KIND_MAINTENANCE},
-                    options=options,
+                    options=_maintenance_options(user_input),
                 )
 
         return self.async_show_form(
@@ -403,6 +443,7 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
                     vol.Optional(CONF_SLUG): str,
                     vol.Optional(CONF_MAINT_ACTIONS, default=[]): MAINT_ACTION_SELECTOR,
                     vol.Optional(CONF_MAINT_STATUS): MAINT_STATUS_SELECTOR,
+                    vol.Optional(CONF_MAINT_INTERVAL, default=0): MAINT_INTERVAL_SELECTOR,
                 }
             ),
             errors=errors,
@@ -418,15 +459,10 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
             if slug is not None:
                 await self.async_set_unique_id(slug)
                 self._abort_if_unique_id_configured()
-                options: dict[str, Any] = {
-                    CONF_MAINT_ACTIONS: user_input.get(CONF_MAINT_ACTIONS, [])
-                }
-                if user_input.get(CONF_MAINT_STATUS):
-                    options[CONF_MAINT_STATUS] = user_input[CONF_MAINT_STATUS]
                 return self.async_create_entry(
                     title=self._name or slug,
                     data={CONF_SLUG: slug, CONF_KIND: KIND_MAINTENANCE},
-                    options=options,
+                    options=_maintenance_options(user_input),
                 )
 
         return self.async_show_form(
@@ -439,6 +475,7 @@ class FeedAndWaterConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_MAINT_ACTIONS, default=[]
                     ): REDSEA_ACTION_SELECTOR,
                     vol.Optional(CONF_MAINT_STATUS): REDSEA_STATUS_SELECTOR,
+                    vol.Optional(CONF_MAINT_INTERVAL, default=0): MAINT_INTERVAL_SELECTOR,
                 }
             ),
             errors=errors,
@@ -490,7 +527,10 @@ class FeedAndWaterOptionsFlow(OptionsFlow):
         # A Night Feed is its own entry — show (and save) its night fields, not
         # the tank hardware pickers, so Configure doesn't wipe the night config.
         is_night = bool(self.entry.options.get(CONF_NIGHT_CHANNELS))
+        is_maint = self.entry.data.get(CONF_KIND) == KIND_MAINTENANCE
         if user_input is not None:
+            if is_maint:
+                return self.async_create_entry(data=_maintenance_options(user_input))
             if is_night:
                 options: dict[str, Any] = {
                     CONF_NIGHT_CHANNELS: user_input[CONF_NIGHT_CHANNELS],
@@ -501,9 +541,10 @@ class FeedAndWaterOptionsFlow(OptionsFlow):
                     options[CONF_NIGHT_MODE_OPTION] = user_input[CONF_NIGHT_MODE_OPTION]
                 return self.async_create_entry(data=options)
             return self.async_create_entry(data=user_input)
-        schema = (
-            _night_options_schema(dict(self.entry.options))
-            if is_night
-            else _hardware_schema(dict(self.entry.options))
-        )
+        if is_maint:
+            schema = _maintenance_schema(dict(self.entry.options))
+        elif is_night:
+            schema = _night_options_schema(dict(self.entry.options))
+        else:
+            schema = _hardware_schema(dict(self.entry.options))
         return self.async_show_form(step_id="init", data_schema=schema)

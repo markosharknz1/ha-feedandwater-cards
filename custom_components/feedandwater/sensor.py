@@ -3,7 +3,7 @@ recovery), last-water-change timestamp, and the multi-device off-duration
 tracker ported from the YAML flavor's trigger template sensor."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
@@ -46,6 +46,8 @@ async def async_setup_entry(
         entities.append(PumpSpeedsSensor(tank))
     if tank.is_maintenance:
         entities.append(MaintenanceSensor(tank))
+    if tank.has_equipment:
+        entities.append(WaterChangeStatsSensor(tank))
     if tank.equipment_entities():
         entities.append(EquipmentSensor(tank))
     if tank.watched_onoff_entities():
@@ -307,6 +309,8 @@ class MaintenanceSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
         return {
             "status_entity": self.tank.entry.options.get(CONF_MAINT_STATUS),
             "action_entities": self.tank.option_entities(CONF_MAINT_ACTIONS),
+            "interval_days": self.tank.maintenance_interval_days,
+            "due_at": _iso(self.tank.maintenance_due_at),
         }
 
     async def async_added_to_hass(self) -> None:
@@ -317,8 +321,78 @@ class MaintenanceSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
             )
         )
         last = await self.async_get_last_state()
-        if last is not None and self.tank.maintenance_last_done is None:
-            self.tank.maintenance_last_done = _parse(last.state)
+        if last is not None:
+            self.tank.async_maintenance_restore(_parse(last.state))
+
+
+class WaterChangeStatsSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
+    """Rolling water-change stats from the per-change log: state = litres
+    changed in the last 30 days; attributes add the change count, the
+    weekly percentage of tank volume (when the tank's volume is set in
+    its Configure dialog), the average interval, and the recent log. The
+    log persists across HA restarts via the restored attributes."""
+
+    _attr_icon = "mdi:chart-line-variant"
+    _attr_native_unit_of_measurement = "L"
+
+    def __init__(self, tank: TankData) -> None:
+        super().__init__(tank, "sensor", "water_change_stats")
+
+    def _recent(self) -> list[dict[str, Any]]:
+        cutoff = dt_util.utcnow() - timedelta(days=30)
+        out = []
+        for entry in self.tank.water_change_log:
+            at = dt_util.parse_datetime(str(entry.get("at") or ""))
+            if at is not None and at >= cutoff:
+                out.append(entry)
+        return out
+
+    @property
+    def native_value(self) -> float:
+        return round(sum(float(e.get("volume_l") or 0) for e in self._recent()), 1)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        recent = self._recent()
+        volume_30d = sum(float(e.get("volume_l") or 0) for e in recent)
+        tank_volume = self.tank.tank_volume_l
+        weekly_pct = (
+            round((volume_30d / 30 * 7) / tank_volume * 100, 1)
+            if tank_volume > 0
+            else None
+        )
+        stamps = [
+            dt_util.parse_datetime(str(e.get("at") or ""))
+            for e in self.tank.water_change_log
+        ]
+        stamps = [s for s in stamps if s is not None]
+        avg_interval = (
+            round((stamps[-1] - stamps[0]).total_seconds() / 86400 / (len(stamps) - 1), 1)
+            if len(stamps) >= 2
+            else None
+        )
+        return {
+            "changes_30d": len(recent),
+            "volume_30d_l": round(volume_30d, 1),
+            "tank_volume_l": tank_volume or None,
+            "weekly_pct_of_tank": weekly_pct,
+            "avg_interval_days": avg_interval,
+            "log": list(self.tank.water_change_log)[-20:],
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.tank.last_water_change_listeners.async_add_listener(
+                self.async_write_ha_state
+            )
+        )
+        last = await self.async_get_last_state()
+        if last is not None and not self.tank.water_change_log:
+            restored = last.attributes.get("log") or []
+            if restored:
+                self.tank.water_change_log.extend(restored)
+                del self.tank.water_change_log[:-40]
 
 
 class EquipmentSensor(FeedAndWaterEntity, SensorEntity):

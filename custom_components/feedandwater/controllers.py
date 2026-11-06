@@ -26,6 +26,7 @@ from .const import (
     CONF_KIND,
     CONF_LIGHTS,
     CONF_MAINT_ACTIONS,
+    CONF_MAINT_INTERVAL,
     CONF_POWER_SENSOR,
     CONF_PUMP_SPEED_CONTROLS,
     DOMAIN,
@@ -48,6 +49,7 @@ from .const import (
     LIGHTS_ON_TIMED,
     NUMBER_SPECS,
     SAFETY_TIMEOUT_HOURS,
+    VALUE_LAST_WATER_CHANGE_VOLUME,
     VALUE_LIGHT_TIMER,
     VALUE_NIGHT_LEVEL,
     VALUE_NIGHT_TIMER,
@@ -108,6 +110,10 @@ class TankData:
     last_water_change_listeners: _Notifier = field(default_factory=_Notifier)
     maintenance_last_done: datetime | None = None
     maintenance_done_listeners: _Notifier = field(default_factory=_Notifier)
+    _maint_due_unsub: Callable[[], None] | None = field(default=None)
+    # Water-change history: [{"at": iso, "volume_l": float}], newest last,
+    # persisted via the stats sensor's restored attributes.
+    water_change_log: list = field(default_factory=list)
     # Per-pump pause timers (Speed card: "off for X minutes, then back on";
     # None = off until resumed manually)
     pump_pauses: dict[str, datetime | None] = field(default_factory=dict)
@@ -212,7 +218,97 @@ class TankData:
                     "homeassistant", "turn_on", {"entity_id": entity_id}, blocking=True
                 )
         self.maintenance_last_done = dt_util.utcnow()
+        self._maint_reschedule(dismiss=True)
         self.maintenance_done_listeners._notify()
+
+    # --- Maintenance due dates ------------------------------------------
+
+    @property
+    def maintenance_interval_days(self) -> int:
+        try:
+            return int(self.entry.options.get(CONF_MAINT_INTERVAL) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    @property
+    def maintenance_due_at(self) -> datetime | None:
+        interval = self.maintenance_interval_days
+        if not interval or self.maintenance_last_done is None:
+            return None
+        return self.maintenance_last_done + timedelta(days=interval)
+
+    @callback
+    def async_maintenance_restore(self, last_done: datetime | None) -> None:
+        """Called by the last-done sensor after restoring its state, so a
+        task that came back overdue nags immediately and a future one is
+        scheduled."""
+        if last_done is not None and self.maintenance_last_done is None:
+            self.maintenance_last_done = last_done
+            self._maint_reschedule()
+            self.maintenance_done_listeners._notify()
+
+    @callback
+    def _maint_reschedule(self, dismiss: bool = False) -> None:
+        from homeassistant.components import persistent_notification
+
+        if self._maint_due_unsub:
+            self._maint_due_unsub()
+            self._maint_due_unsub = None
+        notif_id = f"{DOMAIN}_maintdue_{self.slug}"
+        if dismiss:
+            persistent_notification.async_dismiss(self.hass, notif_id)
+        due = self.maintenance_due_at
+        if due is None:
+            return
+        if due <= dt_util.utcnow():
+            self._maint_announce()
+            return
+
+        async def _fire(_now: datetime) -> None:
+            self._maint_due_unsub = None
+            self._maint_announce()
+
+        self._maint_due_unsub = async_track_point_in_time(self.hass, _fire, due)
+
+    @callback
+    def _maint_announce(self) -> None:
+        """The task has crossed its due date: fire an event (for the
+        user's own automations) and raise a persistent notification. The
+        notification id is stable per task, so repeats replace rather
+        than stack, and tapping Done dismisses it."""
+        from homeassistant.components import persistent_notification
+
+        task = self.entry.title or self.slug
+        due = self.maintenance_due_at
+        self.hass.bus.async_fire(
+            f"{DOMAIN}_maintenance_due",
+            {
+                "task": task,
+                "slug": self.slug,
+                "due_at": due.isoformat() if due else None,
+                "last_done": self.maintenance_last_done.isoformat()
+                if self.maintenance_last_done
+                else None,
+                "interval_days": self.maintenance_interval_days,
+            },
+        )
+        persistent_notification.async_create(
+            self.hass,
+            f"{task} is due (every {self.maintenance_interval_days} days). "
+            "Tap Done on the Maintenance card when it's sorted.",
+            title="Reef maintenance due",
+            notification_id=f"{DOMAIN}_maintdue_{self.slug}",
+        )
+        self.maintenance_done_listeners._notify()
+
+    @property
+    def tank_volume_l(self) -> float:
+        from .const import CONF_TANK_VOLUME
+
+        try:
+            return float(self.entry.options.get(CONF_TANK_VOLUME) or 0)
+        except (TypeError, ValueError):
+            return 0.0
 
     def option_entities(self, key: str) -> list[str]:
         value = self.entry.options.get(key) or []
@@ -571,7 +667,14 @@ class TankData:
 
     @callback
     def async_log_water_change(self) -> None:
-        self.last_water_change = dt_util.utcnow()
+        now = dt_util.utcnow()
+        self.last_water_change = now
+        try:
+            volume = float(self.values.get(VALUE_LAST_WATER_CHANGE_VOLUME) or 0)
+        except (TypeError, ValueError):
+            volume = 0.0
+        self.water_change_log.append({"at": now.isoformat(), "volume_l": volume})
+        del self.water_change_log[:-40]
         self.last_water_change_listeners._notify()
 
     # --- Speed-card pump pauses -----------------------------------------
@@ -840,6 +943,9 @@ class TankData:
         if self._dropout_unsub:
             self._dropout_unsub()
             self._dropout_unsub = None
+        if self._maint_due_unsub:
+            self._maint_due_unsub()
+            self._maint_due_unsub = None
 
 
 class FeedController(_Notifier):

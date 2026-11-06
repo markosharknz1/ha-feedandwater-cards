@@ -32,6 +32,7 @@ const SENSOR_SUFFIXES = [
   "light_stage",
   "pump_speeds",
   "last_done",
+  "water_change_stats",
   "equipment",
 ];
 const BUTTON_SUFFIXES = [
@@ -406,6 +407,15 @@ class FeedAndWaterCard extends HTMLElement {
                   </div>`;
               })
               .join("");
+            let statsLine = "";
+            const stats = this._state(tank, "water_change_stats");
+            if (stats && stats.attributes.changes_30d) {
+              const a = stats.attributes;
+              const bits = [`${a.volume_30d_l} L / 30d`, `${a.changes_30d} changes`];
+              if (a.weekly_pct_of_tank != null)
+                bits.push(`${a.weekly_pct_of_tank}% of tank/wk`);
+              statsLine = `<div class="drawer-foot"><span>Water changes: ${bits.join(" · ")}</span></div>`;
+            }
             let foot = "";
             if (tank.entities.log_water_change) {
               const last = this._state(tank, "last_water_change");
@@ -421,6 +431,7 @@ class FeedAndWaterCard extends HTMLElement {
             }
             drawer = `<div class="drawer">
                 ${sliders}
+                ${statsLine}
                 ${foot}
               </div>`;
           }
@@ -2851,6 +2862,9 @@ class FeedAndWaterMaintenanceCard extends HTMLElement {
                 background: var(--secondary-background-color);
                 color: var(--secondary-text-color); }
         .stat.alert { background: var(--error-color, #f44336); color: #fff; }
+        .due { color: var(--secondary-text-color); }
+        .due.soon { color: var(--warning-color, #ffa600); font-weight: 500; }
+        .due.overdue { color: var(--error-color, #f44336); font-weight: 500; }
         .done-btn { border-radius: 16px; padding: 6px 16px; cursor: pointer;
                 font: inherit; font-size: 0.92em; border: 1px solid var(--primary-color);
                 background: var(--primary-color); color: var(--text-primary-color, #fff); }
@@ -2874,6 +2888,17 @@ class FeedAndWaterMaintenanceCard extends HTMLElement {
                 else if (days * 24 >= 1) ago = `${Math.round(days * 24)}h ago`;
                 else ago = "just now";
               }
+              // Due date: amber inside 2 days, red once overdue.
+              let dueText = "";
+              const dueAt = last && last.attributes.due_at;
+              if (dueAt) {
+                const d = (new Date(dueAt).getTime() - Date.now()) / 86400000;
+                if (d < 0)
+                  dueText = ` · <span class="due overdue">overdue ${Math.max(1, Math.round(-d))}d</span>`;
+                else if (d <= 2)
+                  dueText = ` · <span class="due soon">due in ${Math.max(1, Math.ceil(d))}d</span>`;
+                else dueText = ` · <span class="due">due in ${Math.round(d)}d</span>`;
+              }
               let stat = "";
               const statusId = last && last.attributes.status_entity;
               if (statusId && hass.states[statusId]) {
@@ -2885,7 +2910,7 @@ class FeedAndWaterMaintenanceCard extends HTMLElement {
               return `<div class="task">
                   <div class="info">
                     <div class="name">${task.name}</div>
-                    <div class="ago">Last done: ${ago}</div>
+                    <div class="ago">Last done: ${ago}${dueText}</div>
                   </div>
                   ${stat}
                   <button class="done-btn" data-slug="${task.slug}">Done</button>

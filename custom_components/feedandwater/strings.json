@@ -84,7 +84,8 @@
           "power_sensor": "Mains/UPS power sensor",
           "lights": "Stand / tank light(s)",
           "speed_displays": "Speed display(s)",
-          "equipment": "Equipment to watch"
+          "equipment": "Equipment to watch",
+          "tank_volume_l": "Tank volume (optional)"
         },
         "data_description": {
           "wavemakers": "Paused during feeding and water changes.",
@@ -94,7 +95,8 @@
           "power_sensor": "Optional. A sensor that shows when mains/UPS power is on — enables a delayed skimmer restart after a power cut, so it doesn't foam over.",
           "lights": "Optional. Lights (or anything switchable — e.g. a Tapo plug running LED strips) you want a tap-to-run timer for. The Light timer slider sets how long they stay on; 0 keeps them on until you tap Lights off.",
           "speed_displays": "Optional. Extra pumps to show on the Speed card. Number/fan entities show their speed; plain switches (e.g. a pump on a Tapo plug) show on/off — and every pump gets the card's Off button and timer. Feed-mode speed controls are always shown automatically.",
-          "equipment": "Optional. Extra devices for the Equipment status card — dosers, ATO, heaters… (switches, sensors, binary sensors, numbers)."
+          "equipment": "Optional. Extra devices for the Equipment status card — dosers, ATO, heaters… (switches, sensors, binary sensors, numbers).",
+          "tank_volume_l": "Total system volume in litres. Enables water-change stats — e.g. how many % of the tank you're changing per week."
         }
       },
       "equipment": {
@@ -118,13 +120,15 @@
           "name": "Task name",
           "slug": "Entity ID prefix (optional)",
           "maintenance_actions": "Action to run (optional)",
-          "maintenance_status": "Status sensor (optional)"
+          "maintenance_status": "Status sensor (optional)",
+          "maintenance_interval": "Repeat every (days)"
         },
         "data_description": {
           "name": "e.g. \"Fleece Roll\" or \"ATO Reset\".",
           "slug": "Leave blank and it's created from the name automatically.",
           "maintenance_actions": "Entities to trigger when you tap Done — e.g. the filter roller's new-roll button or the ATO's reset/fill switch from your equipment's integration. Leave empty for a log-only task (Done just stamps the date).",
-          "maintenance_status": "A sensor to watch on the card — e.g. the ATO's run-dry sensor or the roller's position sensor."
+          "maintenance_status": "A sensor to watch on the card — e.g. the ATO's run-dry sensor or the roller's position sensor.",
+          "maintenance_interval": "0 = no schedule. With a value, the card shows when the task is next due, and you get a notification once it's overdue."
         }
       },
       "redsea": {
@@ -141,12 +145,14 @@
           "name": "Task name",
           "slug": "Entity ID prefix (optional)",
           "maintenance_actions": "ReefMat new-roll control (optional)",
-          "maintenance_status": "ReefMat status sensor (optional)"
+          "maintenance_status": "ReefMat status sensor (optional)",
+          "maintenance_interval": "Repeat every (days)"
         },
         "data_description": {
           "slug": "Leave blank and it's created from the name automatically.",
           "maintenance_actions": "The ReefMat control that starts a new roll (a button/switch/number on its device page). Leave empty for a log-only tracker.",
-          "maintenance_status": "e.g. the roll position / near-end sensor, shown live on the Maintenance card."
+          "maintenance_status": "e.g. the roll position / near-end sensor, shown live on the Maintenance card.",
+          "maintenance_interval": "0 = no schedule. With a value, the card shows when the task is next due, and you get a notification once it's overdue."
         }
       },
       "redsea_ato": {
@@ -156,12 +162,14 @@
           "name": "Task name",
           "slug": "Entity ID prefix (optional)",
           "maintenance_actions": "ATO reset/fill control (optional)",
-          "maintenance_status": "ATO status sensor (optional)"
+          "maintenance_status": "ATO status sensor (optional)",
+          "maintenance_interval": "Repeat every (days)"
         },
         "data_description": {
           "slug": "Leave blank and it's created from the name automatically.",
           "maintenance_actions": "The ATO control that resets it / triggers a fill (a button/switch on its device page). Leave empty for a log-only tracker.",
-          "maintenance_status": "e.g. the run-dry or water-level sensor — the Maintenance card shows it live and highlights it red when it's flagging."
+          "maintenance_status": "e.g. the run-dry or water-level sensor — the Maintenance card shows it live and highlights it red when it's flagging.",
+          "maintenance_interval": "0 = no schedule. With a value, the card shows when the task is next due, and you get a notification once it's overdue."
         }
       }
     },
@@ -185,7 +193,11 @@
           "power_sensor": "Mains/UPS power sensor",
           "lights": "Stand / tank light(s)",
           "speed_displays": "Speed display(s)",
-          "equipment": "Equipment to watch"
+          "equipment": "Equipment to watch",
+          "tank_volume_l": "Tank volume (optional)",
+          "maintenance_actions": "Action to run (optional)",
+          "maintenance_status": "Status sensor (optional)",
+          "maintenance_interval": "Repeat every (days)"
         },
         "data_description": {
           "wavemakers": "Paused during feeding and water changes.",
