@@ -29,6 +29,3 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # feedandwater is not in the home-assistant/brands repo; since HA
-          # 2026.3 custom integrations ship brand images in-repo instead.
-          ignore: brands
