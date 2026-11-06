@@ -3173,3 +3173,111 @@ window.customCards.push(
       "Repeatable mark-it-done tasks (fleece roll, ATO reset…) with time-since counters, live equipment status, and a Done button that fires the linked action.",
   }
 );
+
+
+/* ------------------------------------------------------------------ */
+/* Dashboard strategy: `strategy: {type: custom:feedandwater}` builds  */
+/* the whole reef dashboard from whatever entries and RedSea devices   */
+/* exist — tanks up top, then lights, pumps, equipment, device         */
+/* tracking, maintenance, and a RedSea section per device family. It   */
+/* regenerates on every dashboard load, so new entries just appear.    */
+/* ------------------------------------------------------------------ */
+
+function fwStrategySections(hass) {
+  const tanks = discoverTanks(hass, null);
+  const sections = [];
+  const section = (heading, cards) => {
+    if (!cards.length) return;
+    sections.push({
+      type: "grid",
+      cards: [{ type: "heading", heading }, ...cards],
+    });
+  };
+
+  const has = (suffix) => tanks.some((t) => t.entities[suffix]);
+
+  if (tanks.some((t) => t.entities.start_feed || t.entities.lights_on)) {
+    section("Tanks", [{ type: "custom:feedandwater-card" }]);
+  }
+  if (has("light_stage")) {
+    section("Lights", [{ type: "custom:feedandwater-lights-card" }]);
+  }
+  if (has("pump_speeds")) {
+    section("Pumps", [{ type: "custom:feedandwater-speeds-card" }]);
+  }
+  if (has("equipment")) {
+    section("Equipment", [{ type: "custom:feedandwater-equipment-card" }]);
+  }
+  if (has("tracked_devices")) {
+    section("Device tracking", [{ type: "custom:feedandwater-devices-card" }]);
+  }
+  if (has("done")) {
+    section("Maintenance", [{ type: "custom:feedandwater-maintenance-card" }]);
+  }
+
+  const redsea = [];
+  const anyDev = (roles, sig) => redseaDevices(hass, roles).some(sig);
+  if (anyDev(MAT_ROLES, (d) => d.entities.new_roll || d.entities.days_till_end_of_roll))
+    redsea.push({ type: "custom:feedandwater-reefmat-card" });
+  if (anyDev(ATO_ROLES, (d) => d.entities.auto_fill || d.entities.stop_fill || d.entities.days_till_empty))
+    redsea.push({ type: "custom:feedandwater-reefato-card" });
+  if (anyDev(DOSE_ROLES, (d) => d.entities.manual_head || d.entities.supplement))
+    redsea.push({ type: "custom:feedandwater-reefdose-card" });
+  if (anyDev(RUN_ROLES, (d) => d.entities.speed && (d.entities.type || d.entities.state)))
+    redsea.push({ type: "custom:feedandwater-reefrun-card" });
+  if (anyDev(WAVE_ROLES, (d) => d.entities.wave_type || d.entities.shortcut_feeding))
+    redsea.push({ type: "custom:feedandwater-reefwave-card" });
+  if (anyDev(POWER_ROLES, (d) => d.entities.battery_level))
+    redsea.push({ type: "custom:feedandwater-reefpower-card" });
+  if (anyDev(LED_ROLES, (d) => LED_CHANNELS.some(([role]) => d.entities[role])))
+    redsea.push({ type: "custom:feedandwater-reefled-card" });
+  section("RedSea", redsea);
+
+  if (!sections.length) {
+    sections.push({
+      type: "grid",
+      cards: [
+        {
+          type: "markdown",
+          content:
+            "**Reef Feed & Water** found nothing to show yet.\n\n" +
+            "Add a tank (or a light timer, Speed card, Equipment card…) via " +
+            "Settings → Devices & Services → Add Integration → Reef Feed & Water, " +
+            "then reload this dashboard.",
+        },
+      ],
+    });
+  }
+  return sections;
+}
+
+customElements.define(
+  "ll-strategy-view-feedandwater",
+  class {
+    static async generate(_config, hass) {
+      return {
+        type: "sections",
+        max_columns: 3,
+        sections: fwStrategySections(hass),
+      };
+    }
+  }
+);
+
+customElements.define(
+  "ll-strategy-dashboard-feedandwater",
+  class {
+    static async generate(_config, _hass) {
+      return {
+        views: [
+          {
+            title: "Reef",
+            path: "reef",
+            icon: "mdi:fishbowl",
+            strategy: { type: "custom:feedandwater" },
+          },
+        ],
+      };
+    }
+  }
+);
