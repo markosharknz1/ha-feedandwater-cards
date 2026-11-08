@@ -51,7 +51,7 @@ ON_OFF_SELECTOR = selector.EntitySelector(
 # separate Flow control) or a fan entity (pumps whose integration merges
 # power+speed into one fan — the fan's percentage is used).
 SPEED_SELECTOR = selector.EntitySelector(
-    selector.EntitySelectorConfig(domain=["number", "fan"], multiple=True)
+    selector.EntitySelectorConfig(domain=["number", "fan", "switch"], multiple=True)
 )
 # The Speed card additionally takes plain switches (e.g. a pump on a Tapo
 # plug) — no speed to read, but the per-pump Off button + timer still work.

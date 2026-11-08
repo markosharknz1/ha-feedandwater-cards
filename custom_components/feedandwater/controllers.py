@@ -383,6 +383,10 @@ class TankData:
                 blocking=True,
             )
             return
+        if entity_id.startswith("switch."):
+            # Single-speed pump: the only speeds are on and off.
+            await self.async_turn("turn_on" if value > 0 else "turn_off", [entity_id])
+            return
         await self.hass.services.async_call(
             "number", "set_value", {"entity_id": entity_id, "value": value}, blocking=True
         )
@@ -977,9 +981,18 @@ class FeedController(_Notifier):
         extra = tank.values[VALUE_SKIMMER_EXTRA_OFF]
         now = dt_util.utcnow()
 
-        # Save current pump speeds so they can be restored later
+        # Save current pump speeds so they can be restored later. A
+        # switch here is a single-speed pump: its "speed" is on (100) or
+        # off (0), and its feed behavior is simply off-then-restore.
         self.saved_speeds = {}
         for entity_id in tank.option_entities(CONF_PUMP_SPEED_CONTROLS):
+            if entity_id.startswith("switch."):
+                state = tank.hass.states.get(entity_id)
+                if state is not None and state.state in ("on", "off"):
+                    self.saved_speeds[entity_id] = (
+                        100.0 if state.state == "on" else 0.0
+                    )
+                continue
             value = tank.read_speed(entity_id)
             if value is not None:
                 self.saved_speeds[entity_id] = value
@@ -988,7 +1001,13 @@ class FeedController(_Notifier):
         await tank.async_turn("turn_off", tank.option_entities(CONF_SKIMMERS))
         feed_speed = tank.values[VALUE_RETURN_PUMP_FEED_SPEED]
         for entity_id in self.saved_speeds:
-            await tank.async_set_speed(entity_id, feed_speed)
+            if entity_id.startswith("switch."):
+                # There is no "slower" for a single-speed pump — feed
+                # mode turns it off; the restore brings back its prior
+                # state through the verified turn path.
+                await tank.async_turn("turn_off", [entity_id])
+            else:
+                await tank.async_set_speed(entity_id, feed_speed)
 
         self.stage = FEED_FEEDING
         self.wavemakers_resume_at = now + timedelta(minutes=minutes)
