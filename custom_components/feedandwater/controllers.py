@@ -7,13 +7,14 @@ must stay identical to the blueprints unless both are changed together.
 from __future__ import annotations
 
 import logging
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_point_in_time,
@@ -133,6 +134,9 @@ class TankData:
     # commanded state, and the interval-timer cancel handle.
     _watchdog_retries: dict[str, int] = field(default_factory=dict)
     _watchdog_unsub: Callable[[], None] | None = field(default=None)
+    # Context ids of our own service calls, so a state change caused by
+    # this integration is never mistaken for the user overriding it.
+    _own_contexts: deque = field(default_factory=lambda: deque(maxlen=64))
     # Dropout diagnostics: availability bookkeeping for every watched
     # device, any brand. One dropout = one offline episode (counted when
     # it starts); completed episodes keep start/end/duration. Persisted
@@ -329,8 +333,14 @@ class TankData:
         self.unresponsive and show as warnings on the cards."""
         if not entity_ids:
             return
+        ctx = Context()
+        self._own_contexts.append(ctx.id)
         await self.hass.services.async_call(
-            "homeassistant", service, {"entity_id": entity_ids}, blocking=True
+            "homeassistant",
+            service,
+            {"entity_id": entity_ids},
+            blocking=True,
+            context=ctx,
         )
         self._schedule_turn_verify(entity_ids, expect_on=service == "turn_on")
 
@@ -479,6 +489,30 @@ class TankData:
             return state is not None and state.state not in (
                 "unavailable",
                 "unknown",
+            )
+
+        # The user overriding a device wins over the watchdog: a state
+        # change that contradicts our claim, between two AVAILABLE states
+        # (so never a dropout, which passes through unavailable), and not
+        # carrying one of our own command contexts, releases the claim —
+        # the same concession the lights controller has always made. A
+        # device that drops off the network keeps its claim, so the
+        # watchdog still lands the pending command when it returns.
+        expected = self._verify_expected.get(entity_id)
+        if (
+            expected is not None
+            and available(new)
+            and available(old)
+            and new.state != expected
+            and (event.context is None or event.context.id not in self._own_contexts)
+        ):
+            self.async_drop_claims([entity_id])
+            self.unresponsive.discard(entity_id)
+            _LOGGER.info(
+                "%s was switched %s outside the integration — no longer re-asserting %s",
+                entity_id,
+                new.state,
+                expected,
             )
 
         now = dt_util.utcnow()
@@ -640,11 +674,14 @@ class TankData:
                 retries,
             )
             try:
+                ctx = Context()
+                self._own_contexts.append(ctx.id)
                 await self.hass.services.async_call(
                     "homeassistant",
                     service,
                     {"entity_id": entity_id},
                     blocking=True,
+                    context=ctx,
                 )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("Watchdog retry failed for %s: %s", entity_id, err)

@@ -145,8 +145,18 @@ const unresponsiveNote = (hass, sensorState) => {
     const st = hass.states[id];
     return (st && st.attributes.friendly_name) || id;
   });
-  return `<div class="warn">⚠ No response: ${names.join(", ")}</div>`;
+  return `<div class="warn">⚠ No response: ${esc(names.join(", "))}</div>`;
 };
+
+// Escape a value for interpolation into innerHTML templates. Friendly
+// names, labels, titles, and states from other integrations are not
+// ours to trust — a name containing markup must render as text, never
+// execute in the dashboard of whoever views the card.
+const esc = (value) =>
+  String(value ?? "").replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
+  );
 
 const fmtOffMinutes = (minutes) => {
   if (minutes >= 60) {
@@ -400,7 +410,7 @@ class FeedAndWaterCard extends HTMLElement {
                 if (!st) return "";
                 const a = st.attributes;
                 return `<div class="slider-row">
-                    <label>${label}</label>
+                    <label>${esc(label)}</label>
                     <input type="range" min="${a.min}" max="${a.max}" step="${a.step}"
                       value="${st.state}" data-slug="${tank.slug}" data-num="${key}">
                     <span class="val">${Number(st.state)} ${unit}</span>
@@ -424,7 +434,7 @@ class FeedAndWaterCard extends HTMLElement {
                   ? new Date(last.state).toLocaleString()
                   : "never logged";
               foot = `<div class="drawer-foot">
-                  <span>Last water change: ${lastText}</span>
+                  <span>Last water change: ${esc(lastText)}</span>
                   <button class="link" data-slug="${tank.slug}" data-act="log_water_change">
                     Log water change now</button>
                 </div>`;
@@ -442,7 +452,7 @@ class FeedAndWaterCard extends HTMLElement {
             const parts = speedsSensor.attributes.speeds.map((s) => {
               const value =
                 !s.on ? "off" : s.value === null ? "?" : `${Math.round(s.value)}${s.unit}`;
-              return `${s.name} <b>${value}</b>`;
+              return `${esc(s.name)} <b>${esc(value)}</b>`;
             });
             speedsLine = `<div class="speeds">${parts.join(" · ")}</div>`;
           }
@@ -467,7 +477,7 @@ class FeedAndWaterCard extends HTMLElement {
           return `<div class="tank">
               <div class="row">
                 <span class="dot ${status.dot}"></span>
-                <span class="name">${tank.name}</span>
+                <span class="name">${esc(tank.name)}</span>
                 <span class="status">${status.text}</span>
                 <button class="gear" data-slug="${tank.slug}" data-gear="1"
                   title="Tank settings">⚙</button>
@@ -483,7 +493,7 @@ class FeedAndWaterCard extends HTMLElement {
     }
 
     const heading = this._config.title
-      ? `<div class="heading">${this._config.title}</div>`
+      ? `<div class="heading">${esc(this._config.title)}</div>`
       : "";
     this.shadowRoot.innerHTML = `${style}<ha-card>${heading}${body}</ha-card>`;
 
@@ -578,8 +588,8 @@ class FeedAndWaterDevicesCard extends HTMLElement {
           const rows = devices
             .map(
               (d) => `<tr>
-                <td>${d.name}</td>
-                <td>${d.state === "off" ? "🔴 Off" : d.state === "on" ? "🟢 On" : d.state}</td>
+                <td>${esc(d.name)}</td>
+                <td>${d.state === "off" ? "🔴 Off" : d.state === "on" ? "🟢 On" : esc(d.state)}</td>
                 <td class="right">${d.state === "off" ? fmtOffMinutes(d.off_minutes) : "—"}</td>
               </tr>`
             )
@@ -587,12 +597,12 @@ class FeedAndWaterDevicesCard extends HTMLElement {
           const table = devices.length
             ? `<table><tr><th>Device</th><th>Status</th><th class="right">Off for</th></tr>${rows}</table>`
             : `<div class="empty">No devices tracked yet — paste entity IDs above (comma-separated).</div>`;
-          const nameRow = tanks.length > 1 ? `<div class="name">${tank.name}</div>` : "";
+          const nameRow = tanks.length > 1 ? `<div class="name">${esc(tank.name)}</div>` : "";
           return `<div class="tank">
               ${nameRow}
               <div class="edit">
                 <input type="text" placeholder="switch.skimmer_plug, fan.wavemaker_1, …"
-                  value="${text ? text.state.replace(/"/g, "&quot;") : ""}"
+                  value="${text ? esc(text.state) : ""}"
                   data-slug="${tank.slug}">
               </div>
               ${table}
@@ -602,7 +612,7 @@ class FeedAndWaterDevicesCard extends HTMLElement {
     }
 
     const heading = this._config.title
-      ? `<div class="heading">${this._config.title}</div>`
+      ? `<div class="heading">${esc(this._config.title)}</div>`
       : "";
     this.shadowRoot.innerHTML = `${style}<ha-card>${heading}${body}</ha-card>`;
 
@@ -744,7 +754,7 @@ class FeedAndWaterLightsCard extends HTMLElement {
             slider = `<div class="slider-row">
                 <label>Timer</label>
                 <input type="range" min="${a.min}" max="${a.max}" step="${a.step}"
-                  value="${value}" data-slug="${tank.slug}" data-timer="1">
+                  value="${esc(value)}" data-slug="${tank.slug}" data-timer="1">
                 <span class="val">${valText}</span>
               </div>`;
           }
@@ -752,8 +762,8 @@ class FeedAndWaterLightsCard extends HTMLElement {
           return `<div class="tank">
               <div class="row">
                 <span>💡</span>
-                <span class="name">${tank.name}</span>
-                <span class="status">${statusText}</span>
+                <span class="name">${esc(tank.name)}</span>
+                <span class="status">${esc(statusText)}</span>
               </div>
               ${warn}
               ${slider}
@@ -764,7 +774,7 @@ class FeedAndWaterLightsCard extends HTMLElement {
     }
 
     const heading = this._config.title
-      ? `<div class="heading">${this._config.title}</div>`
+      ? `<div class="heading">${esc(this._config.title)}</div>`
       : "";
     this.shadowRoot.innerHTML = `${style}<ha-card>${heading}${body}</ha-card>`;
 
@@ -977,14 +987,14 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
               else if (r.unresponsive)
                 warn = `<div class="warn">⚠ Not responding to commands</div>`;
               const group = this._config.show_groups
-                ? `<span class="tank">${r.tank}</span>`
+                ? `<span class="tank">${esc(r.tank)}</span>`
                 : "";
               return `<div class="prow">
                   <div class="top">
-                    <span class="pump">${r.name}</span>
+                    <span class="pump">${esc(r.name)}</span>
                     ${group}
-                    <span class="status ${statusClass}">${statusText}</span>
-                    ${value ? `<span class="value">${value}</span>` : ""}
+                    <span class="status ${statusClass}">${esc(statusText)}</span>
+                    ${value ? `<span class="value">${esc(value)}</span>` : ""}
                   </div>
                   ${warn}
                   ${controls}
@@ -998,7 +1008,7 @@ class FeedAndWaterSpeedsCard extends HTMLElement {
     }
 
     const heading = this._config.title
-      ? `<div class="heading">${this._config.title}</div>`
+      ? `<div class="heading">${esc(this._config.title)}</div>`
       : "";
     this.shadowRoot.innerHTML = `${style}<ha-card>${heading}${body}</ha-card>`;
 
@@ -1076,9 +1086,9 @@ class FeedAndWaterSpeedsCardEditor extends HTMLElement {
         (p) => `<div class="pump-row">
           <input type="checkbox" value="${p.entity_id}"
             ${!selected.size || selected.has(p.entity_id) ? "checked" : ""}>
-          <span class="pname">${p.name} <span class="hint">(${p.tank})</span></span>
+          <span class="pname">${esc(p.name)} <span class="hint">(${p.tank})</span></span>
           <input type="text" class="label-input" data-eid="${p.entity_id}"
-            placeholder="Label" value="${(labels[p.entity_id] || "").replace(/"/g, "&quot;")}">
+            placeholder="Label" value="${esc(labels[p.entity_id] || "")}">
         </div>`
       )
       .join("");
@@ -1095,7 +1105,7 @@ class FeedAndWaterSpeedsCardEditor extends HTMLElement {
       </style>
       <div class="wrap">
         <label>Title (optional)
-          <input type="text" id="title" value="${(this._config.title || "").replace(/"/g, "&quot;")}"></label>
+          <input type="text" id="title" value="${esc(this._config.title || "")}"></label>
         <div>Pumps shown ${pumps.length ? "" : "<span class='hint'>(none monitored yet — Settings → Devices &amp; Services → Add Integration → Reef Feed &amp; Water → \"A Speed card\")</span>"}</div>
         ${rows}
         <div class="hint">Untick pumps to hide them; type a Label to rename a
@@ -1306,7 +1316,7 @@ class FeedAndWaterEquipmentCard extends HTMLElement {
                 ? `<div class="since">${d.text === "Unavailable" ? "since" : "for"} ${since}</div>`
                 : "";
               const group = this._config.show_groups
-                ? `<span class="group">${r.group}</span>`
+                ? `<span class="group">${esc(r.group)}</span>`
                 : "";
               const button = d.switchable && r.available
                 ? r.state === "on"
@@ -1315,11 +1325,11 @@ class FeedAndWaterEquipmentCard extends HTMLElement {
                 : "";
               return `<div class="erow">
                   <div class="who">
-                    <span class="name">${r.name}</span>${group}
+                    <span class="name">${esc(r.name)}</span>${group}
                     ${sinceLine}
                   </div>
-                  <span class="status ${d.cls}">${d.text}</span>
-                  ${d.value ? `<span class="value">${d.value}</span>` : ""}
+                  <span class="status ${d.cls}">${esc(d.text)}</span>
+                  ${d.value ? `<span class="value">${esc(d.value)}</span>` : ""}
                   ${button}
                 </div>`;
             })
@@ -1331,7 +1341,7 @@ class FeedAndWaterEquipmentCard extends HTMLElement {
     }
 
     const heading = this._config.title
-      ? `<div class="heading">${this._config.title}</div>`
+      ? `<div class="heading">${esc(this._config.title)}</div>`
       : "";
     this.shadowRoot.innerHTML = `${style}<ha-card>${heading}${body}</ha-card>`;
 
@@ -1395,9 +1405,9 @@ class FeedAndWaterEquipmentCardEditor extends HTMLElement {
         (d) => `<div class="pump-row">
           <input type="checkbox" value="${d.entity_id}"
             ${chosen.size === 0 || chosen.has(d.entity_id) ? "checked" : ""}>
-          <span class="pname">${d.name} <span class="hint">(${d.group})</span></span>
+          <span class="pname">${esc(d.name)} <span class="hint">(${esc(d.group)})</span></span>
           <input type="text" class="label-input" placeholder="Label"
-            data-eid="${d.entity_id}" value="${(labels[d.entity_id] || "").replace(/"/g, "&quot;")}">
+            data-eid="${d.entity_id}" value="${esc(labels[d.entity_id] || "")}">
         </div>`
       )
       .join("");
@@ -1414,7 +1424,7 @@ class FeedAndWaterEquipmentCardEditor extends HTMLElement {
       </style>
       <div class="wrap">
         <label>Title (optional)
-          <input type="text" id="title" value="${(this._config.title || "").replace(/"/g, "&quot;")}"></label>
+          <input type="text" id="title" value="${esc(this._config.title || "")}"></label>
         <div>Devices shown ${devices.length ? "" : "<span class='hint'>(none watched yet — Settings → Devices &amp; Services → Add Integration → Reef Feed &amp; Water → \"An Equipment status card\")</span>"}</div>
         ${rows}
         <div class="hint">Untick devices to hide them; type a Label to rename one
@@ -1650,7 +1660,7 @@ class FeedAndWaterReefMatCard extends HTMLElement {
                 );
               return `<div class="drow">
                   <div class="top">
-                    <span class="name">${labels[d.id] || d.name}</span>
+                    <span class="name">${esc(labels[d.id] || d.name)}</span>
                     <span class="big">${big}</span>
                   </div>
                   ${subBits.length ? `<div class="sub">${subBits.join(" · ")}</div>` : ""}
@@ -1665,7 +1675,7 @@ class FeedAndWaterReefMatCard extends HTMLElement {
     }
 
     const heading = this._config.title
-      ? `<div class="heading">${this._config.title}</div>`
+      ? `<div class="heading">${esc(this._config.title)}</div>`
       : "";
     this.shadowRoot.innerHTML = `<style>${RS_SHARED_CSS}</style><ha-card>${heading}${body}</ha-card>`;
 
@@ -1812,7 +1822,7 @@ class FeedAndWaterReefAtoCard extends HTMLElement {
               if (pumpOn && pumpOn.state === "on") subBits.push("pump running");
               let warn = "";
               if (!off && leak && leak.state !== "dry" && leak.state !== "unknown")
-                warn = `<div class="warn">⚠ Leak detected: ${humanize(leak.state)}</div>`;
+                warn = `<div class="warn">⚠ Leak detected: ${esc(humanize(leak.state))}</div>`;
               else if (off)
                 warn = `<div class="warn">⚠ Unavailable — check the ATO's connection</div>`;
 
@@ -1830,8 +1840,8 @@ class FeedAndWaterReefAtoCard extends HTMLElement {
                 );
               return `<div class="drow">
                   <div class="top">
-                    <span class="name">${labels[d.id] || d.name}</span>
-                    <span class="status ${cls}">${text}</span>
+                    <span class="name">${esc(labels[d.id] || d.name)}</span>
+                    <span class="status ${cls}">${esc(text)}</span>
                     <span class="big">${big}</span>
                   </div>
                   ${subBits.length ? `<div class="sub">${subBits.join(" · ")}</div>` : ""}
@@ -1846,7 +1856,7 @@ class FeedAndWaterReefAtoCard extends HTMLElement {
     }
 
     const heading = this._config.title
-      ? `<div class="heading">${this._config.title}</div>`
+      ? `<div class="heading">${esc(this._config.title)}</div>`
       : "";
     this.shadowRoot.innerHTML = `<style>${RS_SHARED_CSS}</style><ha-card>${heading}${body}</ha-card>`;
 
@@ -1908,9 +1918,9 @@ class FeedAndWaterRedSeaEditor extends HTMLElement {
         (d) => `<div class="pump-row">
           <input type="checkbox" value="${d.id}"
             ${chosen.size === 0 || chosen.has(d.id) ? "checked" : ""}>
-          <span class="pname">${d.name}</span>
+          <span class="pname">${esc(d.name)}</span>
           <input type="text" class="label-input" placeholder="Label"
-            data-did="${d.id}" value="${(labels[d.id] || "").replace(/"/g, "&quot;")}">
+            data-did="${d.id}" value="${esc(labels[d.id] || "")}">
         </div>`
       )
       .join("");
@@ -1927,7 +1937,7 @@ class FeedAndWaterRedSeaEditor extends HTMLElement {
       </style>
       <div class="wrap">
         <label>Title (optional)
-          <input type="text" id="title" value="${(this._config.title || "").replace(/"/g, "&quot;")}"></label>
+          <input type="text" id="title" value="${esc(this._config.title || "")}"></label>
         <div>Devices shown ${devices.length ? "" : `<span class='hint'>(none found — install the Red Sea ReefBeat integration and add your ${this._kind})</span>`}</div>
         ${rows}
       </div>`;
@@ -2117,12 +2127,12 @@ class FeedAndWaterReefDoseCard extends HTMLElement {
               }
               const suppLine =
                 supp && supp.state && supp.state !== "unknown"
-                  ? `<div class="supp">${supp.state}</div>`
+                  ? `<div class="supp">${esc(supp.state)}</div>`
                   : "";
               return `<div class="drow">
                   <div class="top">
-                    <span class="name">${labels[d.id] || d.name}</span>
-                    <span class="status ${cls}">${text}</span>
+                    <span class="name">${esc(labels[d.id] || d.name)}</span>
+                    <span class="status ${cls}">${esc(text)}</span>
                     <span class="big">${big}</span>
                   </div>
                   ${suppLine}
@@ -2138,7 +2148,7 @@ class FeedAndWaterReefDoseCard extends HTMLElement {
     }
 
     const heading = this._config.title
-      ? `<div class="heading">${this._config.title}</div>`
+      ? `<div class="heading">${esc(this._config.title)}</div>`
       : "";
     this.shadowRoot.innerHTML = `<style>${RS_SHARED_CSS}${extra}</style><ha-card>${heading}${body}</ha-card>`;
 
@@ -2322,8 +2332,8 @@ class FeedAndWaterReefRunCard extends HTMLElement {
               }
               return `<div class="drow">
                   <div class="top">
-                    <span class="name">${labels[d.id] || d.name}</span>
-                    <span class="status ${cls}">${text}</span>
+                    <span class="name">${esc(labels[d.id] || d.name)}</span>
+                    <span class="status ${cls}">${esc(text)}</span>
                   </div>
                   ${subBits.length ? `<div class="sub">${subBits.join(" · ")}</div>` : ""}
                   ${warn}
@@ -2337,7 +2347,7 @@ class FeedAndWaterReefRunCard extends HTMLElement {
     }
 
     const heading = this._config.title
-      ? `<div class="heading">${this._config.title}</div>`
+      ? `<div class="heading">${esc(this._config.title)}</div>`
       : "";
     this.shadowRoot.innerHTML = `<style>${RS_SHARED_CSS}${extra}</style><ha-card>${heading}${body}</ha-card>`;
 
@@ -2471,8 +2481,8 @@ class FeedAndWaterReefWaveCard extends HTMLElement {
                 : "";
               return `<div class="drow">
                   <div class="top">
-                    <span class="name">${labels[d.id] || d.name}</span>
-                    <span class="status ${cls}">${text}</span>
+                    <span class="name">${esc(labels[d.id] || d.name)}</span>
+                    <span class="status ${cls}">${esc(text)}</span>
                   </div>
                   ${subBits.length ? `<div class="sub">${subBits.join(" · ")}</div>` : ""}
                   ${warn}
@@ -2486,7 +2496,7 @@ class FeedAndWaterReefWaveCard extends HTMLElement {
     }
 
     const heading = this._config.title
-      ? `<div class="heading">${this._config.title}</div>`
+      ? `<div class="heading">${esc(this._config.title)}</div>`
       : "";
     this.shadowRoot.innerHTML = `<style>${RS_SHARED_CSS}</style><ha-card>${heading}${body}</ha-card>`;
 
@@ -2604,13 +2614,13 @@ class FeedAndWaterReefPowerCard extends HTMLElement {
                     `Socket ${Number(idx) + 1}`;
                   const on = sw && sw.state === "on";
                   return `<button class="chip ${on ? "on" : ""}"
-                      data-toggle="${sock.on_off}">${label}</button>`;
+                      data-toggle="${sock.on_off}">${esc(label)}</button>`;
                 })
                 .join("");
               return `<div class="drow">
                   <div class="top">
-                    <span class="name">${labels[d.id] || d.name}</span>
-                    <span class="status ${cls}">${text}</span>
+                    <span class="name">${esc(labels[d.id] || d.name)}</span>
+                    <span class="status ${cls}">${esc(text)}</span>
                   </div>
                   ${subBits.length ? `<div class="sub">${subBits.join(" · ")}</div>` : ""}
                   ${warn}
@@ -2624,7 +2634,7 @@ class FeedAndWaterReefPowerCard extends HTMLElement {
     }
 
     const heading = this._config.title
-      ? `<div class="heading">${this._config.title}</div>`
+      ? `<div class="heading">${esc(this._config.title)}</div>`
       : "";
     this.shadowRoot.innerHTML = `<style>${RS_SHARED_CSS}${extra}</style><ha-card>${heading}${body}</ha-card>`;
 
@@ -2742,7 +2752,7 @@ class FeedAndWaterReefLedCard extends HTMLElement {
                         ? 100
                         : 0;
                   return `<div class="controls">
-                      <label>${label}</label>
+                      <label>${esc(label)}</label>
                       <input type="range" min="0" max="100" step="1" value="${pct}"
                         data-light="${d.entities[role]}">
                       <span class="val">${pct}%</span>
@@ -2764,8 +2774,8 @@ class FeedAndWaterReefLedCard extends HTMLElement {
                 : "";
               return `<div class="drow">
                   <div class="top">
-                    <span class="name">${labels[d.id] || d.name}</span>
-                    <span class="status ${cls}">${text}</span>
+                    <span class="name">${esc(labels[d.id] || d.name)}</span>
+                    <span class="status ${cls}">${esc(text)}</span>
                   </div>
                   ${subBits.length ? `<div class="sub">${subBits.join(" · ")}</div>` : ""}
                   ${warn}
@@ -2779,7 +2789,7 @@ class FeedAndWaterReefLedCard extends HTMLElement {
     }
 
     const heading = this._config.title
-      ? `<div class="heading">${this._config.title}</div>`
+      ? `<div class="heading">${esc(this._config.title)}</div>`
       : "";
     this.shadowRoot.innerHTML = `<style>${RS_SHARED_CSS}${extra}</style><ha-card>${heading}${body}</ha-card>`;
 
@@ -2905,11 +2915,11 @@ class FeedAndWaterMaintenanceCard extends HTMLElement {
                 const s = hass.states[statusId];
                 const alert = s.state === "on" || s.state === "problem";
                 const label = s.attributes.friendly_name || statusId;
-                stat = `<span class="stat ${alert ? "alert" : ""}">${label}: ${s.state}</span>`;
+                stat = `<span class="stat ${alert ? "alert" : ""}">${esc(label)}: ${esc(s.state)}</span>`;
               }
               return `<div class="task">
                   <div class="info">
-                    <div class="name">${task.name}</div>
+                    <div class="name">${esc(task.name)}</div>
                     <div class="ago">Last done: ${ago}${dueText}</div>
                   </div>
                   ${stat}
@@ -2923,7 +2933,7 @@ class FeedAndWaterMaintenanceCard extends HTMLElement {
     }
 
     const heading = this._config.title
-      ? `<div class="heading">${this._config.title}</div>`
+      ? `<div class="heading">${esc(this._config.title)}</div>`
       : "";
     this.shadowRoot.innerHTML = `${style}<ha-card>${heading}${body}</ha-card>`;
 
@@ -2981,7 +2991,7 @@ class FeedAndWaterCardEditor extends HTMLElement {
         (t) => `<label class="tank-row">
           <input type="checkbox" value="${t.slug}"
             ${!selected.size || selected.has(t.slug) ? "checked" : ""}>
-          ${t.name} <span class="slug">(${t.slug})</span></label>`
+          ${esc(t.name)} <span class="slug">(${t.slug})</span></label>`
       )
       .join("");
     this.shadowRoot.innerHTML = `
