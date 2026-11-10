@@ -24,6 +24,10 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_ATOS_FEED,
+    CONF_ATOS_WATER_CHANGE,
+    CONF_HEATERS_FEED,
+    CONF_HEATERS_WATER_CHANGE,
     CONF_KIND,
     CONF_LIGHTS,
     CONF_MAINT_ACTIONS,
@@ -989,6 +993,18 @@ class TankData:
             self._maint_due_unsub = None
 
 
+def _restorable(tank: TankData, entity_ids: list[str]) -> list[str]:
+    """The subset of held-off devices to turn back on afterwards: everything
+    not explicitly off right now. Unknown/unavailable devices are included
+    on purpose — for a heater or ATO the fail-safe is coming back on."""
+    keep: list[str] = []
+    for entity_id in entity_ids:
+        state = tank.hass.states.get(entity_id)
+        if state is None or state.state != "off":
+            keep.append(entity_id)
+    return keep
+
+
 class FeedController(_Notifier):
     """Feed mode: wavemakers pause, return pump speed drops, skimmer pauses
     longer. Mirrors reef_feed_mode.yaml exactly:
@@ -1008,6 +1024,8 @@ class FeedController(_Notifier):
         self.wavemakers_resume_at: datetime | None = None
         self.skimmer_resume_at: datetime | None = None
         self.saved_speeds: dict[str, float] = {}
+        # Heaters/ATOs held off for the feed that should come back on
+        self.saved_aux: list[str] = []
         self._unsub_wavemakers: Callable[[], None] | None = None
         self._unsub_skimmer: Callable[[], None] | None = None
 
@@ -1036,6 +1054,13 @@ class FeedController(_Notifier):
 
         await tank.async_turn("turn_off", tank.option_entities(CONF_WAVEMAKERS))
         await tank.async_turn("turn_off", tank.option_entities(CONF_SKIMMERS))
+        # Heaters/ATOs wired for feed mode: snapshot what's running, then
+        # hold everything off for the duration.
+        aux = tank.option_entities(CONF_HEATERS_FEED) + tank.option_entities(
+            CONF_ATOS_FEED
+        )
+        self.saved_aux = _restorable(tank, aux)
+        await tank.async_turn("turn_off", aux)
         feed_speed = tank.values[VALUE_RETURN_PUMP_FEED_SPEED]
         for entity_id in self.saved_speeds:
             if entity_id.startswith("switch."):
@@ -1060,6 +1085,7 @@ class FeedController(_Notifier):
         tank = self.tank
         self._cancel_timers()
         await tank.async_turn("turn_on", tank.option_entities(CONF_WAVEMAKERS))
+        await self._async_restore_aux()
         await self._async_restore_speeds()
         self.stage = FEED_SETTLING
         self.wavemakers_resume_at = None
@@ -1072,6 +1098,7 @@ class FeedController(_Notifier):
     async def _async_wavemakers_done(self, _now: datetime) -> None:
         self._unsub_wavemakers = None
         await self.tank.async_turn("turn_on", self.tank.option_entities(CONF_WAVEMAKERS))
+        await self._async_restore_aux()
         self.stage = FEED_SETTLING
         self.wavemakers_resume_at = None
         self._notify()
@@ -1089,6 +1116,11 @@ class FeedController(_Notifier):
         for entity_id, value in self.saved_speeds.items():
             await self.tank.async_set_speed(entity_id, value)
         self.saved_speeds = {}
+
+    async def _async_restore_aux(self) -> None:
+        """Bring held-off heaters/ATOs back on (verified by the watchdog)."""
+        await self.tank.async_turn("turn_on", self.saved_aux)
+        self.saved_aux = []
 
     def _schedule(self) -> None:
         self._cancel_timers()
@@ -1115,6 +1147,7 @@ class FeedController(_Notifier):
         wavemakers_resume_at: datetime | None,
         skimmer_resume_at: datetime | None,
         saved_speeds: dict[str, float],
+        saved_aux: list[str] | None = None,
     ) -> None:
         """Rebuild an in-flight sequence after HA restart/reload: overdue
         actions run immediately, future ones are rescheduled. This is a
@@ -1123,6 +1156,7 @@ class FeedController(_Notifier):
         if stage == FEED_IDLE:
             return
         self.saved_speeds = dict(saved_speeds)
+        self.saved_aux = list(saved_aux or [])
         now = dt_util.utcnow()
 
         if stage == FEED_FEEDING and wavemakers_resume_at is not None:
@@ -1141,6 +1175,10 @@ class FeedController(_Notifier):
                 return
 
         if stage == FEED_SETTLING:
+            # Aux devices restore at the wavemaker point, which has passed
+            # by the time we're settling — catch up if a restart landed in
+            # the window between wavemakers-on and the aux restore.
+            await self._async_restore_aux()
             if skimmer_resume_at is None or skimmer_resume_at <= now:
                 await self.tank.async_turn(
                     "turn_on", self.tank.option_entities(CONF_SKIMMERS)
@@ -1171,6 +1209,8 @@ class WaterChangeController(_Notifier):
         self.wavemakers_restart_at: datetime | None = None
         self.skimmer_restart_at: datetime | None = None
         self.safety_at: datetime | None = None
+        # Heaters/ATOs held off for the water change that should come back on
+        self.saved_aux: list[str] = []
         self._unsub_wavemakers: Callable[[], None] | None = None
         self._unsub_skimmer: Callable[[], None] | None = None
         self._unsub_safety: Callable[[], None] | None = None
@@ -1182,6 +1222,13 @@ class WaterChangeController(_Notifier):
         await tank.async_turn("turn_off", tank.option_entities(CONF_RETURN_PUMPS))
         await tank.async_turn("turn_off", tank.option_entities(CONF_WAVEMAKERS))
         await tank.async_turn("turn_off", tank.option_entities(CONF_SKIMMERS))
+        # Heaters off before the level drops (an exposed heater can crack);
+        # ATO off so the falling level doesn't make it dump fresh water.
+        aux = tank.option_entities(CONF_HEATERS_WATER_CHANGE) + tank.option_entities(
+            CONF_ATOS_WATER_CHANGE
+        )
+        self.saved_aux = _restorable(tank, aux)
+        await tank.async_turn("turn_off", aux)
         self.stage = WC_PAUSED
         self.safety_at = dt_util.utcnow() + timedelta(hours=SAFETY_TIMEOUT_HOURS)
         self._schedule()
@@ -1194,8 +1241,10 @@ class WaterChangeController(_Notifier):
         self._cancel_timers()
         self.safety_at = None
 
-        # Stage 1: return pump(s) restart immediately
+        # Stage 1: return pump(s) restart immediately — and with the water
+        # level back, held-off heaters/ATOs come back on too.
         await tank.async_turn("turn_on", tank.option_entities(CONF_RETURN_PUMPS))
+        await self._async_restore_aux()
         now = dt_util.utcnow()
         delay1 = tank.values[VALUE_WAVEMAKER_RESTART_DELAY]
         delay2 = tank.values[VALUE_SKIMMER_RESTART_DELAY]
@@ -1218,6 +1267,11 @@ class WaterChangeController(_Notifier):
         self.stage = WC_IDLE
         self.skimmer_restart_at = None
         self._notify()
+
+    async def _async_restore_aux(self) -> None:
+        """Bring held-off heaters/ATOs back on (verified by the watchdog)."""
+        await self.tank.async_turn("turn_on", self.saved_aux)
+        self.saved_aux = []
 
     async def _async_safety_fired(self, _now: datetime) -> None:
         """Pause left on too long — force the same staged restart."""
@@ -1253,10 +1307,18 @@ class WaterChangeController(_Notifier):
         wavemakers_restart_at: datetime | None,
         skimmer_restart_at: datetime | None,
         safety_at: datetime | None,
+        saved_aux: list[str] | None = None,
     ) -> None:
         if stage == WC_IDLE:
             return
+        self.saved_aux = list(saved_aux or [])
         now = dt_util.utcnow()
+
+        if stage != WC_PAUSED:
+            # Aux devices restore with the return pump, which has already
+            # restarted by these stages — catch up if a restart landed in
+            # the window between pump-on and the aux restore.
+            await self._async_restore_aux()
 
         if stage == WC_PAUSED:
             self.stage = WC_PAUSED

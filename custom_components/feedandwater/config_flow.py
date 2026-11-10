@@ -21,6 +21,10 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_ATOS_FEED,
+    CONF_ATOS_WATER_CHANGE,
+    CONF_HEATERS_FEED,
+    CONF_HEATERS_WATER_CHANGE,
     CONF_KIND,
     CONF_LIGHTS,
     CONF_MAINT_ACTIONS,
@@ -167,6 +171,20 @@ def _hardware_schema(current: dict[str, Any]) -> vol.Schema:
             CONF_PUMP_SPEED_CONTROLS,
             default=current.get(CONF_PUMP_SPEED_CONTROLS, []),
         ): SPEED_SELECTOR,
+        vol.Optional(
+            CONF_HEATERS_WATER_CHANGE,
+            default=current.get(CONF_HEATERS_WATER_CHANGE, []),
+        ): ON_OFF_SELECTOR,
+        vol.Optional(
+            CONF_HEATERS_FEED, default=current.get(CONF_HEATERS_FEED, [])
+        ): ON_OFF_SELECTOR,
+        vol.Optional(
+            CONF_ATOS_WATER_CHANGE,
+            default=current.get(CONF_ATOS_WATER_CHANGE, []),
+        ): ON_OFF_SELECTOR,
+        vol.Optional(
+            CONF_ATOS_FEED, default=current.get(CONF_ATOS_FEED, [])
+        ): ON_OFF_SELECTOR,
         vol.Optional(
             CONF_LIGHTS, default=current.get(CONF_LIGHTS, [])
         ): LIGHTS_SELECTOR,

@@ -23,6 +23,8 @@ ATTR_WAVEMAKERS_AT = "wavemakers_at"
 ATTR_SKIMMER_AT = "skimmer_at"
 ATTR_SAFETY_AT = "safety_at"
 ATTR_SAVED_SPEEDS = "saved_speeds"
+# Heaters/ATOs held off by the running mode, to turn back on afterwards
+ATTR_HELD_OFF = "held_off"
 ATTR_OFF_AT = "off_at"
 
 
@@ -88,6 +90,7 @@ class FeedStageSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
             ATTR_WAVEMAKERS_AT: _iso(feed.wavemakers_resume_at),
             ATTR_SKIMMER_AT: _iso(feed.skimmer_resume_at),
             ATTR_SAVED_SPEEDS: dict(feed.saved_speeds),
+            ATTR_HELD_OFF: list(feed.saved_aux),
             "unresponsive": sorted(self.tank.unresponsive),
         }
 
@@ -105,6 +108,7 @@ class FeedStageSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
                 _parse(last.attributes.get(ATTR_WAVEMAKERS_AT)),
                 _parse(last.attributes.get(ATTR_SKIMMER_AT)),
                 {str(k): float(v) for k, v in saved.items()},
+                [str(e) for e in (last.attributes.get(ATTR_HELD_OFF) or [])],
             )
 
 
@@ -128,6 +132,7 @@ class WaterChangeStageSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
             ATTR_WAVEMAKERS_AT: _iso(water.wavemakers_restart_at),
             ATTR_SKIMMER_AT: _iso(water.skimmer_restart_at),
             ATTR_SAFETY_AT: _iso(water.safety_at),
+            ATTR_HELD_OFF: list(water.saved_aux),
         }
 
     async def async_added_to_hass(self) -> None:
@@ -142,6 +147,7 @@ class WaterChangeStageSensor(FeedAndWaterEntity, RestoreEntity, SensorEntity):
                 _parse(last.attributes.get(ATTR_WAVEMAKERS_AT)),
                 _parse(last.attributes.get(ATTR_SKIMMER_AT)),
                 _parse(last.attributes.get(ATTR_SAFETY_AT)),
+                [str(e) for e in (last.attributes.get(ATTR_HELD_OFF) or [])],
             )
 
 

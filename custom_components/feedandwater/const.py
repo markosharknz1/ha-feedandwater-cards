@@ -12,6 +12,14 @@ CONF_SKIMMERS = "skimmers"
 CONF_RETURN_PUMPS = "return_pumps"
 CONF_PUMP_SPEED_CONTROLS = "pump_speed_controls"
 CONF_POWER_SENSOR = "power_sensor"
+# Optional heater / ATO roles — separate pick-lists per mode, so what feed
+# mode powers off and what a water change powers off are chosen
+# independently. Only devices that were running are turned back on
+# afterwards; a device you'd deliberately left off stays off.
+CONF_HEATERS_FEED = "heaters_feed"
+CONF_HEATERS_WATER_CHANGE = "heaters_water_change"
+CONF_ATOS_FEED = "atos_feed"
+CONF_ATOS_WATER_CHANGE = "atos_water_change"
 CONF_LIGHTS = "lights"
 CONF_SPEED_DISPLAYS = "speed_displays"
 # Equipment status card: any entities to watch (dosers, ATO, heaters…)
