@@ -1086,7 +1086,7 @@ class FeedAndWaterSpeedsCardEditor extends HTMLElement {
         (p) => `<div class="pump-row">
           <input type="checkbox" value="${p.entity_id}"
             ${!selected.size || selected.has(p.entity_id) ? "checked" : ""}>
-          <span class="pname">${esc(p.name)} <span class="hint">(${p.tank})</span></span>
+          <span class="pname">${esc(p.name)} <span class="hint">(${esc(p.tank)})</span></span>
           <input type="text" class="label-input" data-eid="${p.entity_id}"
             placeholder="Label" value="${esc(labels[p.entity_id] || "")}">
         </div>`
@@ -2310,8 +2310,8 @@ class FeedAndWaterReefRunCard extends HTMLElement {
                 text = good ? "Running" : humanize(state.state);
               }
               const subBits = [];
-              if (type && type.state !== "unknown") subBits.push(humanize(type.state));
-              if (model && model.state !== "unknown") subBits.push(model.state);
+              if (type && type.state !== "unknown") subBits.push(esc(humanize(type.state)));
+              if (model && model.state !== "unknown") subBits.push(esc(model.state));
               if (temp !== null) subBits.push(`${temp.toFixed(1)} °C`);
               const warn = off
                 ? `<div class="warn">⚠ Unavailable — check the ReefRun's connection</div>`
@@ -2467,7 +2467,7 @@ class FeedAndWaterReefWaveCard extends HTMLElement {
                 text = wave ? `Running ${wave}` : "Running";
               }
               const subBits = [];
-              if (dir && dir.state !== "unknown") subBits.push(humanize(dir.state));
+              if (dir && dir.state !== "unknown") subBits.push(esc(humanize(dir.state)));
               if (fwd !== null) subBits.push(`forward ${Math.round(fwd)}%`);
               if (back !== null) subBits.push(`back ${Math.round(back)}%`);
               const warn = off
@@ -3006,7 +3006,7 @@ class FeedAndWaterCardEditor extends HTMLElement {
       </style>
       <div class="wrap">
         <label>Title (optional)
-          <input type="text" id="title" value="${this._config.title || ""}"></label>
+          <input type="text" id="title" value="${esc(this._config.title || "")}"></label>
         <div>Tanks shown ${tanks.length ? "" : "<span class='hint'>(none found yet)</span>"}</div>
         ${rows}
         <div class="hint">Untick tanks to hide them; all ticked = show every tank

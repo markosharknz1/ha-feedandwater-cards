@@ -446,6 +446,13 @@ class TankData:
             CONF_RETURN_PUMPS,
             CONF_LIGHTS,
             CONF_EQUIPMENT,
+            # Heaters/ATOs are claimed while a mode holds them off, so they
+            # must be watched too — otherwise a manual override can never
+            # release the claim and the watchdog re-asserts it forever.
+            CONF_HEATERS_FEED,
+            CONF_HEATERS_WATER_CHANGE,
+            CONF_ATOS_FEED,
+            CONF_ATOS_WATER_CHANGE,
         ):
             for entity_id in self.option_entities(key):
                 if (
